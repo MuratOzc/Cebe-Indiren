@@ -1,5 +1,5 @@
 fastapi
 uvicorn
-yt-dlp[curl-cffi]>=2026.6.28.dev0
+yt-dlp[default,curl-cffi]
 jinja2
 

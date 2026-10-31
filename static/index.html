@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="tr">
 
 <head>
     <meta charset="UTF-8">
@@ -26,6 +26,10 @@
     </div>
 
     <div class="container">
+        <div id="updateBanner" class="update-banner hidden">
+            <span id="updateText"></span>
+            <button id="updateBtn" type="button" onclick="updateYtdlp()">G&uuml;ncelle</button>
+        </div>
         <header>
             <h1>Video İndiren</h1>
         </header>
@@ -95,8 +99,8 @@
                 <div class="field">
                     <label for="dirInput">indirme klasörü</label>
                     <div class="input-group">
-                        <input type="text" id="dirInput" placeholder="Detecting downloads folder..." readonly>
-                        <button class="browse-btn" onclick="browseFolder()">Browse</button>
+                        <input type="text" id="dirInput" placeholder="İndirme klasörü algılanıyor..." readonly>
+                        <button class="browse-btn" onclick="browseFolder()">Gözat</button>
                     </div>
                 </div>
 

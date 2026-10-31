@@ -4,30 +4,39 @@ let ffmpegReady = false;
 let setupPollHandle = null;
 let setupRetryPending = false;
 let trimSelectionTouched = false;
+let infoAbortController = null;
+let lastFetchedUrl = "";
 const TRIM_COMPARE_EPSILON = 0.001;
 const MIN_TRIM_GAP_SECONDS = 0.01;
 
-// Add listeners to URL input
+// Add listeners on DOM load
 document.addEventListener("DOMContentLoaded", () => {
     const urlInput = document.getElementById('urlInput');
     const retrySetupBtn = document.getElementById('retrySetupBtn');
+    const playlistToggle = document.getElementById('playlistToggle');
+    const trimmingSection = document.getElementById('trimmingSection');
+
     retrySetupBtn.addEventListener('click', retrySetup);
 
-    // Auto-fetch info when user clicks away
-    urlInput.addEventListener('blur', async () => {
+    async function fetchInfoForUrl() {
         let url = urlInput.value.trim();
-        if (!url) return;
+        if (!url) {
+            trimmingSection.style.display = 'none';
+            document.getElementById('videoTitleLabel').innerText = "";
+            videoDuration = 0;
+            lastFetchedUrl = "";
+            return;
+        }
+
+        if (url === lastFetchedUrl) return;
 
         const titleLabel = document.getElementById('videoTitleLabel');
         const durationLabel = document.getElementById('videoDurationLabel');
-        const trimmingSection = document.getElementById('trimmingSection');
-        const playlistToggle = document.getElementById('playlistToggle');
 
-        if (!playlistToggle.checked) {
-            trimmingSection.style.display = 'flex';
-        } else {
-            trimmingSection.style.display = 'none';
+        if (infoAbortController) {
+            infoAbortController.abort();
         }
+        infoAbortController = new AbortController();
 
         titleLabel.innerText = "Bilgi getiriliyor...";
 
@@ -35,26 +44,42 @@ document.addEventListener("DOMContentLoaded", () => {
             const res = await fetch('/api/info', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: url })
+                body: JSON.stringify({ url: url }),
+                signal: infoAbortController.signal
             });
             const data = await res.json();
 
             if (data.status === 'success') {
-                videoDuration = data.duration;
+                lastFetchedUrl = url;
+                videoDuration = Number(data.duration) || 0;
                 titleLabel.innerText = data.title || "Bilinmeyen Başlık";
                 durationLabel.innerText = formatTimeLimit(videoDuration);
-                setupSliders();
+
+                if (!playlistToggle.checked && videoDuration > 0) {
+                    trimmingSection.style.display = 'flex';
+                    setupSliders();
+                } else {
+                    trimmingSection.style.display = 'none';
+                }
             } else {
                 titleLabel.innerText = "Video bilgisi alınamadı.";
+                trimmingSection.style.display = 'none';
             }
         } catch (e) {
-            titleLabel.innerText = "Hata oluştu.";
+            if (e.name !== 'AbortError') {
+                titleLabel.innerText = "Hata oluştu.";
+                trimmingSection.style.display = 'none';
+            }
+        }
+    }
+
+    urlInput.addEventListener('blur', fetchInfoForUrl);
+    urlInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            fetchInfoForUrl();
+            startDownload();
         }
     });
-
-    // Hide trimming section if downloading playlist
-    const playlistToggle = document.getElementById('playlistToggle');
-    const trimmingSection = document.getElementById('trimmingSection');
 
     playlistToggle.addEventListener('change', () => {
         if (playlistToggle.checked) {
@@ -145,36 +170,34 @@ async function retrySetup() {
 
 // Time formatting helpers
 function formatTimeLimit(seconds) {
-    if (!seconds) return "00:00:00";
-    const roundedSeconds = Math.round(Number(seconds) * 100) / 100;
-    const h = Math.floor(roundedSeconds / 3600);
-    const m = Math.floor((roundedSeconds % 3600) / 60);
-    const s = roundedSeconds - h * 3600 - m * 60;
-    const wholeSeconds = Math.floor(s);
-    const centiseconds = Math.round((s - wholeSeconds) * 100);
-    let secondsText = wholeSeconds.toString().padStart(2, '0');
-
-    if (centiseconds > 0) {
-        secondsText += `.${centiseconds.toString().padStart(2, '0')}`;
+    const sec = Math.max(0, Number(seconds) || 0);
+    const totalCs = Math.round(sec * 100);
+    const cs = totalCs % 100;
+    const totalSec = Math.floor(totalCs / 100);
+    const s = totalSec % 60;
+    const m = Math.floor(totalSec / 60) % 60;
+    const h = Math.floor(totalSec / 3600);
+    let res = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    if (cs > 0) {
+        res += `.${cs.toString().padStart(2, '0')}`;
     }
-
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${secondsText}`;
+    return res;
 }
 
 function parseTimeInput(timeStr) {
     if (!timeStr) return 0;
-    const parts = timeStr.split(':');
+    const parts = String(timeStr).trim().split(':');
     let totalSeconds = 0;
 
     if (parts.length === 3) {
-        totalSeconds = parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseFloat(parts[2]);
+        totalSeconds = parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseFloat(parts[2]);
     } else if (parts.length === 2) {
-        totalSeconds = parseInt(parts[0]) * 60 + parseFloat(parts[1]);
+        totalSeconds = parseInt(parts[0], 10) * 60 + parseFloat(parts[1]);
     } else {
         totalSeconds = parseFloat(timeStr);
     }
 
-    return Number.isFinite(totalSeconds) ? totalSeconds : 0;
+    return Number.isFinite(totalSeconds) ? Math.max(0, totalSeconds) : 0;
 }
 
 function clampTime(seconds, min, max) {
@@ -236,7 +259,9 @@ function setupSliderEvents() {
         trimSelectionTouched = true;
         let sec = parseTimeInput(startInput.value);
         const maxVal = parseFloat(maxSlider.value);
-        if (sec > maxVal - MIN_TRIM_GAP_SECONDS) sec = maxVal - MIN_TRIM_GAP_SECONDS;
+        if (maxVal > 0 && sec > maxVal - MIN_TRIM_GAP_SECONDS) {
+            sec = maxVal - MIN_TRIM_GAP_SECONDS;
+        }
         sec = clampTime(sec, 0, videoDuration);
         minSlider.value = sec;
         startInput.value = formatTimeLimit(sec);
@@ -247,7 +272,9 @@ function setupSliderEvents() {
         trimSelectionTouched = true;
         let sec = parseTimeInput(endInput.value);
         const minVal = parseFloat(minSlider.value);
-        if (sec < minVal + MIN_TRIM_GAP_SECONDS) sec = minVal + MIN_TRIM_GAP_SECONDS;
+        if (sec < minVal + MIN_TRIM_GAP_SECONDS) {
+            sec = minVal + MIN_TRIM_GAP_SECONDS;
+        }
         sec = clampTime(sec, 0, videoDuration);
         maxSlider.value = sec;
         endInput.value = formatTimeLimit(sec);
@@ -310,6 +337,7 @@ async function startDownload() {
     resultCard.classList.add('hidden');
     input.disabled = true;
     dirInput.disabled = true;
+    qualitySelect.disabled = true;
     audioToggle.disabled = true;
     playlistToggle.disabled = true;
     startTimeInput.disabled = true;
@@ -333,15 +361,18 @@ async function startDownload() {
     progressInfo.innerText = "0.0MB / 0.0MB";
     progressBar.style.width = "0%";
 
+    let isDownloading = true;
+
     // Polling function
     const pollInterval = setInterval(async () => {
+        if (!isDownloading) return;
         try {
             const res = await fetch('/api/progress');
+            if (!isDownloading) return;
             const data = await res.json();
             if (data.status === 'downloading') {
                 progressPercent.innerText = data.percent;
 
-                // Show counter only if info is available to avoid "hollow circle"
                 if (data.playlist_info) {
                     playlistCounter.innerText = data.playlist_info;
                     playlistCounter.style.display = 'inline-block';
@@ -370,12 +401,14 @@ async function startDownload() {
         let final_start = null;
         let final_end = null;
 
-        // Only send trim parameters after an intentional trim edit.
-        if (trimSelectionTouched && document.getElementById('trimmingSection').style.display !== 'none' && videoDuration > 0) {
+        // Send trim parameters if trimmed or manually set
+        if (trimSelectionTouched && document.getElementById('trimmingSection').style.display !== 'none') {
             const currentStart = parseTimeInput(start_time);
             const currentEnd = parseTimeInput(end_time);
+            const hasCustomStart = currentStart > TRIM_COMPARE_EPSILON;
+            const hasCustomEnd = currentEnd < videoDuration - TRIM_COMPARE_EPSILON;
 
-            if (currentStart > TRIM_COMPARE_EPSILON || currentEnd < videoDuration - TRIM_COMPARE_EPSILON) {
+            if (hasCustomStart || hasCustomEnd) {
                 final_start = start_time;
                 final_end = end_time;
             }
@@ -411,8 +444,9 @@ async function startDownload() {
             currentSavedPath = data.full_path; // Store the full absolute path
             resultCard.classList.remove('hidden');
             input.value = ""; // Clear input on success
+            lastFetchedUrl = "";
+            document.getElementById('trimmingSection').style.display = 'none';
         } else {
-            // FastAPI validation errors return detail as an array of objects
             let errorMsg = "İndirme başarısız";
             if (data.detail) {
                 if (typeof data.detail === 'string') {
@@ -427,14 +461,17 @@ async function startDownload() {
         status.textContent = error.message;
         status.className = "status error";
     } finally {
+        isDownloading = false;
+        clearInterval(pollInterval);
+
         const cancelBtn = document.getElementById('cancelBtn');
         cancelBtn.disabled = false;
         cancelBtn.innerText = "İptal Et";
 
-        clearInterval(pollInterval);
         progressContainer.classList.add('hidden');
         input.disabled = false;
         dirInput.disabled = false;
+        qualitySelect.disabled = false;
         audioToggle.disabled = false;
         playlistToggle.disabled = false;
         startTimeInput.disabled = false;
@@ -442,8 +479,6 @@ async function startDownload() {
         btn.disabled = false;
         btnText.style.display = 'block';
         btnLoader.style.display = 'none';
-
-        // Re-enable dir field if needed, but it's readonly anyway
     }
 }
 
@@ -470,8 +505,66 @@ async function cancelDownload() {
     }
 }
 
+// yt-dlp update check: the server checks once at startup; this only waits for that result.
+async function pollUpdateStatus() {
+    try {
+        const response = await fetch('/api/update_status');
+        const data = await response.json();
+        if (data.status === 'checking') {
+            setTimeout(pollUpdateStatus, 1000);
+            return;
+        }
+        if (data.status === 'available') {
+            document.getElementById('updateText').innerText =
+                `yt-dlp g\u00fcncellemesi var (${data.current} \u2192 ${data.latest})`;
+            document.getElementById('updateBanner').classList.remove('hidden');
+        }
+    } catch (e) {
+        console.error("Update status failed", e);
+    }
+}
+
+async function updateYtdlp() {
+    const btn = document.getElementById('updateBtn');
+    const text = document.getElementById('updateText');
+    btn.disabled = true;
+    btn.innerText = "G\u00fcncelleniyor...";
+    try {
+        const response = await fetch('/api/update_ytdlp', { method: 'POST' });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || "G\u00fcncelleme ba\u015far\u0131s\u0131z");
+        }
+    } catch (e) {
+        text.innerText = e.message;
+        btn.disabled = false;
+        btn.innerText = "Tekrar Dene";
+        return;
+    }
+    text.innerText = "Yeniden ba\u015flat\u0131l\u0131yor...";
+    btn.classList.add('hidden');
+
+    // Wait for the old server to go down and the new one to come up, then reload.
+    let sawDown = false;
+    const started = Date.now();
+    const tick = async () => {
+        try {
+            const response = await fetch('/api/update_status', { cache: 'no-store' });
+            if (response.ok && (sawDown || Date.now() - started > 15000)) {
+                location.reload();
+                return;
+            }
+        } catch (e) {
+            sawDown = true;
+        }
+        setTimeout(tick, 1000);
+    };
+    setTimeout(tick, 1000);
+}
+
 // Fetch default config on load
 window.addEventListener('load', async () => {
+    pollUpdateStatus();
     try {
         await pollSetupStatus();
         if (!setupPollHandle && !ffmpegReady) {
@@ -505,13 +598,15 @@ document.getElementById('qualitySelect').addEventListener('change', async (e) =>
 });
 
 // Heartbeat system to keep server alive
-setInterval(async () => {
+async function sendHeartbeat() {
     try {
         await fetch('/api/heartbeat');
     } catch (e) {
         console.error("Heartbeat failed", e);
     }
-}, 3000); // 3s pulse for 10s shutdown
+}
+sendHeartbeat();
+setInterval(sendHeartbeat, 3000);
 
 window.addEventListener('beforeunload', () => {
     try {

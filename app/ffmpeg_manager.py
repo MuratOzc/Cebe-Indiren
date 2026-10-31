@@ -36,12 +36,11 @@ def trim_video_ffmpeg(input_path, start_sec, end_sec):
 
         cmd = [shutil.which('ffmpeg') or 'ffmpeg', '-y']
 
-        cmd += ['-i', input_path]
-
-        # Seek after input so the decoded trim starts exactly where the user
-        # expects, then re-encode for broad thumbnail/preview compatibility.
+        # Fast seeking before input is frame-accurate when re-encoding and avoids decoding preceding video.
         if start_sec and start_sec > 0:
             cmd += ['-ss', str(start_sec)]
+
+        cmd += ['-i', input_path]
 
         if end_sec is not None:
             duration = end_sec - (start_sec or 0)
@@ -50,7 +49,7 @@ def trim_video_ffmpeg(input_path, start_sec, end_sec):
 
         is_audio = ext.lower() in ['.mp3', '.m4a', '.wav', '.aac', '.ogg', '.flac', '.wma']
 
-        cmd += ['-map', '0', '-map_metadata', '0']
+        cmd += ['-map', '0:v?', '-map', '0:a?', '-map_metadata', '0']
 
         if is_audio:
             cmd += ['-c:v', 'copy']
@@ -119,21 +118,45 @@ def trim_video_ffmpeg(input_path, start_sec, end_sec):
         state.active_ffmpeg_process = None
 
 
-def cleanup_interrupted_downloads(download_dir):
+def kill_active_ffmpeg_processes():
+    """Terminate ffmpeg processes started by this application without killing other system processes."""
+    if state.active_ffmpeg_process and state.active_ffmpeg_process.poll() is None:
+        try:
+            state.active_ffmpeg_process.kill()
+            state.active_ffmpeg_process.wait(timeout=3)
+            logger.info("Killed active ffmpeg process.")
+        except Exception:
+            pass
+        finally:
+            state.active_ffmpeg_process = None
+
+    if sys.platform == "win32":
+        try:
+            my_pid = os.getpid()
+            cmd = f'Get-CimInstance Win32_Process | Where-Object {{ $_.ParentProcessId -eq {my_pid} -and $_.Name -like "*ffmpeg*" }} | Stop-Process -Force'
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", cmd],
+                capture_output=True,
+                check=False,
+                creationflags=_no_window_flags(),
+            )
+        except Exception:
+            pass
+
+
+def cleanup_interrupted_downloads(download_dir, kill_processes=True):
     try:
         if os.path.exists(download_dir):
             logger.info(f"Aggressively cleaning up temporary files in {download_dir}...")
 
-            if sys.platform == "win32":
-                try:
-                    _run_hidden(['taskkill', '/F', '/IM', 'ffmpeg.exe', '/T'])
-                    time.sleep(1)
-                except Exception:
-                    pass
+            if kill_processes:
+                kill_active_ffmpeg_processes()
+                time.sleep(0.5)
 
             for root, dirs, files in os.walk(download_dir):
                 for file in files:
-                    if any(ext in file.lower() for ext in ('.part', '.ytdl', '.temp', '.tmp', '.part-frag')):
+                    name = file.lower()
+                    if name.endswith(('.part', '.ytdl', '.temp', '.tmp')) or '.part-frag' in name:
                         file_path = os.path.join(root, file)
                         for attempt in range(5):
                             try:
@@ -254,15 +277,17 @@ def retry_ffmpeg_setup(ffmpeg_dir):
 
 def monitor_heartbeat():
     while True:
-        time.sleep(2)
+        time.sleep(1)
 
-        if state.server_should_exit:
-            logger.info("Explicit shutdown requested. Shutting down...")
-            state.cancel_requested = True
-            time.sleep(1)
-            cleanup_interrupted_downloads(state.download_dir)
-            os._exit(0)
-            break
+        # Check if shutdown beacon was sent and not cancelled by a new heartbeat within 5 seconds
+        if state.shutdown_requested_at is not None:
+            if time.time() - state.shutdown_requested_at >= 5.0:
+                logger.info("Explicit shutdown requested and grace period elapsed. Shutting down...")
+                state.cancel_requested = True
+                time.sleep(1)
+                cleanup_interrupted_downloads(state.download_dir)
+                os._exit(0)
+                break
 
         if not state.heartbeat_received:
             continue
