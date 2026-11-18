@@ -10,9 +10,8 @@ import ytdlp_override
 ytdlp_override.activate()
 
 from app import app as app_instance
-from app.config import redirect_stdio_if_frozen, setup_logging, FFMPEG_DIR
-from app.state import state
-from app.ffmpeg_manager import check_ffmpeg_async, cleanup_interrupted_downloads, monitor_heartbeat, open_browser_app, start_server
+from app.config import redirect_stdio_if_frozen, setup_logging
+from app.ffmpeg_manager import ensure_bundled_ffmpeg_in_path, monitor_heartbeat, open_browser_app, start_server
 from app.ytdlp_updater import start_update_check
 
 
@@ -49,9 +48,7 @@ if __name__ == '__main__':
 
     start_update_check()
 
-    check_ffmpeg_async(FFMPEG_DIR)
-
-    cleanup_interrupted_downloads(state.download_dir, kill_processes=False)
+    ensure_bundled_ffmpeg_in_path()
 
     monitor_thread = threading.Thread(target=monitor_heartbeat, daemon=True)
     monitor_thread.start()

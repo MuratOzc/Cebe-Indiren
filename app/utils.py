@@ -36,6 +36,8 @@ def format_bytes(b):
     return f"{b:.1f}TB"
 
 
+_ANSI_ESCAPE_RE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+
 def strip_ansi(text):
-    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    return ansi_escape.sub('', text)
+    return _ANSI_ESCAPE_RE.sub('', text)

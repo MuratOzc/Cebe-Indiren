@@ -1,8 +1,5 @@
 let currentSavedPath = ""; // Global tracker for the last saved file
 let videoDuration = 0; // Total video length in seconds
-let ffmpegReady = false;
-let setupPollHandle = null;
-let setupRetryPending = false;
 let trimSelectionTouched = false;
 let infoAbortController = null;
 let lastFetchedUrl = "";
@@ -12,13 +9,11 @@ const MIN_TRIM_GAP_SECONDS = 0.01;
 // Add listeners on DOM load
 document.addEventListener("DOMContentLoaded", () => {
     const urlInput = document.getElementById('urlInput');
-    const retrySetupBtn = document.getElementById('retrySetupBtn');
     const playlistToggle = document.getElementById('playlistToggle');
     const trimmingSection = document.getElementById('trimmingSection');
 
-    retrySetupBtn.addEventListener('click', retrySetup);
-
     async function fetchInfoForUrl() {
+        if (urlInput.disabled) return;
         let url = urlInput.value.trim();
         if (!url) {
             trimmingSection.style.display = 'none';
@@ -76,7 +71,9 @@ document.addEventListener("DOMContentLoaded", () => {
     urlInput.addEventListener('blur', fetchInfoForUrl);
     urlInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
-            fetchInfoForUrl();
+            if (infoAbortController) {
+                infoAbortController.abort();
+            }
             startDownload();
         }
     });
@@ -91,82 +88,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     setupSliderEvents();
 });
-
-function setDownloadAvailability(enabled) {
-    ffmpegReady = enabled;
-    document.getElementById('downloadBtn').disabled = !enabled;
-}
-
-function renderSetupState(data) {
-    const overlay = document.getElementById('setupOverlay');
-    const setupMessage = document.getElementById('setupMessage');
-    const setupPercent = document.getElementById('setupPercent');
-    const setupProgressBar = document.getElementById('setupProgressBar');
-    const retrySetupBtn = document.getElementById('retrySetupBtn');
-
-    const status = data.status || 'pending';
-    const progress = Math.max(0, Math.min(100, Number(data.progress || 0)));
-    const ffmpegAvailable = Boolean(data.ffmpeg_available);
-
-    setupMessage.textContent = data.message || 'FFmpeg hazirlaniyor.';
-    setupPercent.textContent = `${progress}%`;
-    setupProgressBar.style.width = `${progress}%`;
-
-    if (status === 'failed') {
-        overlay.classList.remove('hidden');
-        retrySetupBtn.classList.remove('hidden');
-        retrySetupBtn.disabled = setupRetryPending;
-        setDownloadAvailability(false);
-        return;
-    }
-
-    retrySetupBtn.classList.add('hidden');
-
-    if (ffmpegAvailable || status === 'complete') {
-        overlay.classList.add('hidden');
-        setDownloadAvailability(true);
-        return;
-    }
-
-    overlay.classList.remove('hidden');
-    setDownloadAvailability(false);
-}
-
-async function pollSetupStatus() {
-    try {
-        const response = await fetch('/api/setup_status');
-        const data = await response.json();
-        renderSetupState(data);
-
-        if ((data.status === 'complete' || data.ffmpeg_available) && setupPollHandle) {
-            clearInterval(setupPollHandle);
-            setupPollHandle = null;
-        }
-    } catch (e) {
-        console.error("Setup status poll failed", e);
-    }
-}
-
-async function retrySetup() {
-    const retrySetupBtn = document.getElementById('retrySetupBtn');
-    setupRetryPending = true;
-    retrySetupBtn.disabled = true;
-    retrySetupBtn.textContent = 'Tekrar deneniyor...';
-
-    try {
-        await fetch('/api/retry_setup', { method: 'POST' });
-        if (!setupPollHandle) {
-            setupPollHandle = setInterval(pollSetupStatus, 1000);
-        }
-        await pollSetupStatus();
-    } catch (e) {
-        console.error("Retry setup failed", e);
-    } finally {
-        setupRetryPending = false;
-        retrySetupBtn.disabled = false;
-        retrySetupBtn.textContent = 'Tekrar Dene';
-    }
-}
 
 // Time formatting helpers
 function formatTimeLimit(seconds) {
@@ -296,13 +217,6 @@ function updateSliderTrack() {
 }
 
 async function startDownload() {
-    if (!ffmpegReady) {
-        const status = document.getElementById('statusMessage');
-        status.textContent = "Ilk kurulum tamamlanmadan indirme baslatilamaz.";
-        status.className = "status error";
-        return;
-    }
-
     const input = document.getElementById('urlInput');
     const btn = document.getElementById('downloadBtn');
     const btnText = document.getElementById('btnText');
@@ -566,11 +480,6 @@ async function updateYtdlp() {
 window.addEventListener('load', async () => {
     pollUpdateStatus();
     try {
-        await pollSetupStatus();
-        if (!setupPollHandle && !ffmpegReady) {
-            setupPollHandle = setInterval(pollSetupStatus, 1000);
-        }
-
         const response = await fetch('/api/config');
         const data = await response.json();
         if (data.default_dir) {

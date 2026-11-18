@@ -10,10 +10,10 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from .state import state
-from .config import load_config, save_config, FFMPEG_DIR
+from .config import load_config, save_config
 from .models import DownloadRequest, InfoRequest, QualityRequest, OpenFolderRequest
 from .downloader import run_download, get_video_info
-from .ffmpeg_manager import retry_ffmpeg_setup, kill_active_ffmpeg_processes
+from .ffmpeg_manager import kill_active_ffmpeg_processes
 from .ytdlp_updater import install_update, restart_app
 
 logger = logging.getLogger(__name__)
@@ -26,20 +26,6 @@ async def get_progress():
     return state.progress_state
 
 
-@router.get("/api/setup_status")
-async def get_setup_status():
-    return state.setup_state
-
-
-@router.post("/api/retry_setup")
-async def retry_setup():
-    retry_status = retry_ffmpeg_setup(FFMPEG_DIR)
-    return {
-        "status": retry_status,
-        "ffmpeg_available": state.setup_state.get("ffmpeg_available", False),
-    }
-
-
 @router.post("/api/cancel")
 def cancel_download():
     state.cancel_requested = True
@@ -49,18 +35,21 @@ def cancel_download():
 
 @router.post("/api/download")
 async def download_video(request: DownloadRequest):
-    if not state.setup_state.get("ffmpeg_available", False):
-        raise HTTPException(status_code=503, detail="Ilk kurulum tamamlanmadan indirme baslatilamaz.")
+    if state.download_active:
+        raise HTTPException(status_code=409, detail="Zaten aktif bir indirme var.")
 
     download_dir = state.download_dir
     if request.download_dir and os.path.exists(request.download_dir):
         download_dir = request.download_dir
 
+    state.download_active = True
     try:
         result = await run_download(request.url, request, download_dir)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        state.download_active = False
 
 
 @router.get("/api/update_status")
@@ -131,14 +120,33 @@ def select_folder():
     return {"path": folder_path}
 
 
+def _is_allowed_open_path(path):
+    norm_path = os.path.normcase(os.path.normpath(os.path.abspath(path)))
+    if state.last_downloaded_path:
+        norm_last = os.path.normcase(os.path.normpath(os.path.abspath(state.last_downloaded_path)))
+        if norm_path == norm_last:
+            return True
+    if state.download_dir:
+        norm_dir = os.path.normcase(os.path.normpath(os.path.abspath(state.download_dir)))
+        try:
+            if os.path.commonpath([norm_path, norm_dir]) == norm_dir:
+                return True
+        except ValueError:
+            pass
+    return False
+
+
 @router.post("/api/open_folder")
 async def open_folder(request: OpenFolderRequest):
     try:
         path = os.path.normpath(os.path.abspath(request.file_path))
+        if not _is_allowed_open_path(path):
+            raise HTTPException(status_code=403, detail="Access denied")
+
         if os.path.exists(path):
             if os.path.isfile(path) and os.name == "nt":
                 import subprocess
-                subprocess.Popen(f'explorer /select,"{path}"')
+                subprocess.Popen(["explorer", "/select,", path])
             else:
                 target_dir = path if os.path.isdir(path) else os.path.dirname(path)
                 os.startfile(target_dir)
@@ -146,11 +154,13 @@ async def open_folder(request: OpenFolderRequest):
             
         # Fallback to parent directory (handles playlists with dummy file paths)
         target_dir = os.path.dirname(path)
-        if target_dir and os.path.exists(target_dir):
+        if target_dir and os.path.exists(target_dir) and _is_allowed_open_path(target_dir):
             os.startfile(target_dir)
             return {"status": "success"}
             
         return {"status": "error", "message": "File not found"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to open folder: {e}")
         return {"status": "error", "message": str(e)}

@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 class DownloadRequest(BaseModel):
     url: str
-    download_dir: str = None
+    download_dir: str | None = None
     quality: str = "best"
     audio_only: bool = False
     download_playlist: bool = False

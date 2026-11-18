@@ -3,11 +3,9 @@ import sys
 import time
 import shutil
 import subprocess
-import threading
 import logging
 
 from .state import state
-from .config import FFMPEG_DIR
 from .utils import resource_path
 
 logger = logging.getLogger(__name__)
@@ -15,15 +13,6 @@ logger = logging.getLogger(__name__)
 
 def _no_window_flags():
     return subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-
-
-def _run_hidden(command):
-    return subprocess.run(
-        command,
-        capture_output=True,
-        check=False,
-        creationflags=_no_window_flags(),
-    )
 
 
 def trim_video_ffmpeg(input_path, start_sec, end_sec):
@@ -90,17 +79,11 @@ def trim_video_ffmpeg(input_path, start_sec, end_sec):
 
         if returncode == 0 and os.path.exists(trimmed_path):
             try:
-                os.remove(input_path)
-                logger.info(f"Deleted original file: {input_path}")
-            except Exception as e:
-                logger.warning(f"Could not delete original: {e}")
-
-            try:
-                os.rename(trimmed_path, input_path)
-                logger.info(f"Trim successful, replaced original file.")
+                os.replace(trimmed_path, input_path)
+                logger.info("Trim successful, replaced original file.")
                 return input_path
             except Exception as e:
-                logger.warning(f"Could not rename trimmed file: {e}")
+                logger.warning(f"Could not replace original file with trimmed file: {e}")
                 return trimmed_path
         else:
             stderr_text = stderr_data.decode(errors='ignore') if stderr_data else ''
@@ -144,10 +127,10 @@ def kill_active_ffmpeg_processes():
             pass
 
 
-def cleanup_interrupted_downloads(download_dir, kill_processes=True):
+def cleanup_interrupted_downloads(download_dir, kill_processes=True, since_time=None):
     try:
         if os.path.exists(download_dir):
-            logger.info(f"Aggressively cleaning up temporary files in {download_dir}...")
+            logger.info(f"Cleaning up interrupted download temp files in {download_dir}...")
 
             if kill_processes:
                 kill_active_ffmpeg_processes()
@@ -156,8 +139,14 @@ def cleanup_interrupted_downloads(download_dir, kill_processes=True):
             for root, dirs, files in os.walk(download_dir):
                 for file in files:
                     name = file.lower()
-                    if name.endswith(('.part', '.ytdl', '.temp', '.tmp')) or '.part-frag' in name:
+                    if name.endswith(('.part', '.ytdl', '.temp', '.tmp')) or '.part-frag' in name or '.temp.' in name:
                         file_path = os.path.join(root, file)
+                        if since_time is not None:
+                            try:
+                                if os.path.getmtime(file_path) < since_time - 2:
+                                    continue
+                            except OSError:
+                                continue
                         for attempt in range(5):
                             try:
                                 if os.path.exists(file_path):
@@ -171,11 +160,10 @@ def cleanup_interrupted_downloads(download_dir, kill_processes=True):
                                 if attempt < 4:
                                     time.sleep(0.5)
     except Exception as e:
-        logger.error(f"Aggressive cleanup failed: {e}")
+        logger.error(f"Cleanup failed: {e}")
 
 
-def _check_ffmpeg_sync(ffmpeg_dir):
-    import shutil
+def ensure_bundled_ffmpeg_in_path():
     if shutil.which("ffmpeg"):
         logger.info("FFmpeg found in system PATH.")
         return True
@@ -189,90 +177,8 @@ def _check_ffmpeg_sync(ffmpeg_dir):
             logger.info("FFmpeg successfully added to PATH from bundled resources.")
             return True
 
-    appdata_ffmpeg_bin = os.path.join(ffmpeg_dir, "bin")
-    if os.path.exists(appdata_ffmpeg_bin):
-        logger.info(f"Found FFmpeg in AppData: {appdata_ffmpeg_bin}. Adding to PATH...")
-        os.environ["PATH"] += os.pathsep + appdata_ffmpeg_bin
-        if shutil.which("ffmpeg"):
-            logger.info("FFmpeg successfully added to PATH from AppData.")
-            return True
-
-    local_ffmpeg = os.path.join(os.getcwd(), "ffmpeg")
-    if os.path.exists(local_ffmpeg):
-        logger.info("Found legacy FFmpeg folder next to EXE. Cleaning up...")
-        try:
-            shutil.rmtree(local_ffmpeg)
-        except Exception:
-            pass
-
-    return False
-
-
-def _download_ffmpeg_with_progress(ffmpeg_dir):
-    import shutil
-    import setup_ffmpeg
-    appdata_ffmpeg_bin = os.path.join(ffmpeg_dir, "bin")
-
-    logger.info("FFmpeg NOT found! Attempting automatic download to AppData...")
-    state.setup_state = {"status": "downloading", "progress": 0, "message": "FFmpeg indiriliyor...", "ffmpeg_available": False}
-
-    try:
-        def progress_callback(status, progress, message):
-            state.setup_state = {
-                "status": status,
-                "progress": progress,
-                "message": message,
-                "ffmpeg_available": False,
-            }
-
-        setup_ffmpeg.download_ffmpeg(ffmpeg_dir, progress_callback=progress_callback)
-        if os.path.exists(appdata_ffmpeg_bin):
-            os.environ["PATH"] += os.pathsep + appdata_ffmpeg_bin
-            if shutil.which("ffmpeg"):
-                logger.info("FFmpeg successfully installed to AppData and added to PATH.")
-                state.setup_state = {"status": "complete", "progress": 100, "message": "Kurulum tamamlandi", "ffmpeg_available": True}
-                return True
-    except Exception as e:
-        logger.error(f"Automatic FFmpeg download failed: {e}")
-        state.setup_state = {"status": "failed", "progress": 0, "message": f"FFmpeg yukleme hatasi: {str(e)}", "ffmpeg_available": False}
-
     logger.warning("FFmpeg NOT found! Video merging will fail or result in lower quality/no audio.")
     return False
-
-
-def check_ffmpeg_async(ffmpeg_dir):
-    if state.setup_in_progress:
-        return
-
-    if _check_ffmpeg_sync(ffmpeg_dir):
-        state.setup_state = {"status": "complete", "progress": 100, "message": "FFmpeg hazir", "ffmpeg_available": True}
-        state.setup_complete = True
-        return
-
-    def _run_download():
-        state.setup_in_progress = True
-        state.setup_complete = False
-        try:
-            _download_ffmpeg_with_progress(ffmpeg_dir)
-        finally:
-            state.setup_complete = True
-            state.setup_in_progress = False
-
-    t = threading.Thread(target=_run_download, daemon=True)
-    t.start()
-
-
-def retry_ffmpeg_setup(ffmpeg_dir):
-    if state.setup_in_progress:
-        return "in_progress"
-
-    if _check_ffmpeg_sync(ffmpeg_dir):
-        state.setup_state = {"status": "complete", "progress": 100, "message": "FFmpeg hazir", "ffmpeg_available": True}
-        state.setup_complete = True
-        return "complete"
-
-    check_ffmpeg_async(ffmpeg_dir)
-    return "started"
 
 
 def monitor_heartbeat():
@@ -283,9 +189,10 @@ def monitor_heartbeat():
         if state.shutdown_requested_at is not None:
             if time.time() - state.shutdown_requested_at >= 5.0:
                 logger.info("Explicit shutdown requested and grace period elapsed. Shutting down...")
-                state.cancel_requested = True
-                time.sleep(1)
-                cleanup_interrupted_downloads(state.download_dir)
+                if state.download_active:
+                    state.cancel_requested = True
+                    time.sleep(1)
+                    cleanup_interrupted_downloads(state.download_dir, since_time=state.download_started_at)
                 os._exit(0)
                 break
 
@@ -293,16 +200,17 @@ def monitor_heartbeat():
             continue
 
         current_status = state.progress_state.get("status")
-        if not state.setup_complete or current_status in {"starting", "downloading", "merging", "trimming"}:
+        if current_status in {"starting", "downloading", "merging", "trimming"}:
             timeout = 180
         else:
             timeout = 60
 
         if time.time() - state.last_heartbeat_time > timeout:
             logger.info(f"No heartbeat received for {timeout} seconds. Shutting down...")
-            state.cancel_requested = True
-            time.sleep(3)
-            cleanup_interrupted_downloads(state.download_dir)
+            if state.download_active:
+                state.cancel_requested = True
+                time.sleep(3)
+                cleanup_interrupted_downloads(state.download_dir, since_time=state.download_started_at)
             os._exit(0)
             break
 

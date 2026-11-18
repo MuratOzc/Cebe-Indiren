@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 
 
 def get_app_data_dir():
@@ -19,12 +20,17 @@ def get_app_data_dir():
 APP_DATA_DIR = get_app_data_dir()
 LOG_FILE = os.path.join(APP_DATA_DIR, 'app.log')
 CONFIG_FILE = os.path.join(APP_DATA_DIR, 'config.json')
-FFMPEG_DIR = os.path.join(APP_DATA_DIR, 'ffmpeg')
 
 
 def setup_logging():
+    handler = RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=1_000_000,
+        backupCount=2,
+        encoding='utf-8'
+    )
     logging.basicConfig(
-        filename=LOG_FILE,
+        handlers=[handler],
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )

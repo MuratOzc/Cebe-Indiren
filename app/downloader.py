@@ -231,6 +231,7 @@ async def run_download(url, request, download_dir):
                 filename = trimmed_path
                 logger.info(f"Trimmed video saved to: {full_path}")
 
+        state.last_downloaded_path = full_path
         return {
             "status": "success",
             "message": "Video downloaded successfully",
@@ -243,7 +244,7 @@ async def run_download(url, request, download_dir):
             logger.info(f"Download {download_id} was cancelled by user.")
             state.progress_state["status"] = "cancelled"
             from .ffmpeg_manager import cleanup_interrupted_downloads
-            cleanup_interrupted_downloads(download_dir, kill_processes=False)
+            cleanup_interrupted_downloads(download_dir, kill_processes=False, since_time=state.download_started_at)
             return {"status": "cancelled", "message": "İndirme iptal edildi"}
 
         logger.error(f"Download error for ID {download_id}: {str(e)}", exc_info=True)

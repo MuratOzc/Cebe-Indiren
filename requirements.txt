@@ -1,5 +1,4 @@
 fastapi
 uvicorn
 yt-dlp[default,curl-cffi]
-jinja2
 

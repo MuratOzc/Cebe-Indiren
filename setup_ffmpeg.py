@@ -36,7 +36,7 @@ def download_ffmpeg(dest_dir=None, progress_callback=None):
     try:
         _notify(progress_callback, "downloading", 0, "FFmpeg indiriliyor...")
 
-        with urllib.request.urlopen(FFMPEG_URL) as response, open(zip_path, "wb") as out_file:
+        with urllib.request.urlopen(FFMPEG_URL, timeout=30) as response, open(zip_path, "wb") as out_file:
             total_size = int(response.headers.get("Content-Length", "0"))
             downloaded = 0
 
@@ -58,6 +58,11 @@ def download_ffmpeg(dest_dir=None, progress_callback=None):
         _notify(progress_callback, "extracting", 92, "FFmpeg arsivi aciliyor...")
 
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            abs_extract = os.path.abspath(temp_extract)
+            for member in zip_ref.namelist():
+                target_path = os.path.abspath(os.path.join(abs_extract, member))
+                if os.path.commonpath([abs_extract, target_path]) != abs_extract:
+                    raise RuntimeError(f"Unsafe path in FFmpeg archive: {member}")
             zip_ref.extractall(temp_extract)
 
         _notify(progress_callback, "extracting", 97, "FFmpeg dosyalari tasiniyor...")
