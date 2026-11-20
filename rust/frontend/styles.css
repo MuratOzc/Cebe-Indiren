@@ -538,3 +538,14 @@ input:checked+.slider:before {
     padding: 0.4rem 1rem;
     white-space: nowrap;
 }
+
+.app-version {
+    position: fixed;
+    left: 12px;
+    bottom: 10px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    opacity: 0.6;
+    user-select: none;
+    pointer-events: none;
+}

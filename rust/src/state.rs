@@ -18,6 +18,17 @@ pub struct UpdateState {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct AppUpdateState {
+    pub status: String,
+    pub current: String,
+    pub latest: String,
+    #[serde(skip_serializing)]
+    pub download_url: String,
+    #[serde(skip_serializing)]
+    pub sha256_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ProgressPayload {
     pub percent: String,
     pub speed: String,
@@ -34,6 +45,8 @@ pub struct AppState {
     pub download_dir: Mutex<String>,
     pub last_downloaded_path: Mutex<String>,
     pub update_state: Mutex<UpdateState>,
+    pub app_update_state: Mutex<AppUpdateState>,
+    pub app_update_active: AtomicBool,
     pub resource_dir: Option<PathBuf>,
 }
 
@@ -51,6 +64,14 @@ impl AppState {
                 current: String::new(),
                 latest: String::new(),
             }),
+            app_update_state: Mutex::new(AppUpdateState {
+                status: "checking".to_string(),
+                current: format!("v{}", env!("CARGO_PKG_VERSION")),
+                latest: String::new(),
+                download_url: String::new(),
+                sha256_url: None,
+            }),
+            app_update_active: AtomicBool::new(false),
             resource_dir,
         }
     }

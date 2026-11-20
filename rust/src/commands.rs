@@ -1,6 +1,7 @@
+use crate::app_updater::install_app_update;
 use crate::config::{load_config, log_error, save_config};
 use crate::downloader::{get_video_info as fetch_video_info, run_download, DownloadRequest, DownloadResult, VideoInfoResult};
-use crate::state::{AppState, UpdateState};
+use crate::state::{AppState, AppUpdateState, UpdateState};
 use crate::updater::install_update;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -243,4 +244,63 @@ pub async fn update_ytdlp(state: State<'_, Arc<AppState>>) -> Result<UpdateState
     }
 
     Ok(new_state)
+}
+
+#[tauri::command]
+pub fn get_app_update_status(state: State<'_, Arc<AppState>>) -> AppUpdateState {
+    state
+        .app_update_state
+        .lock()
+        .map(|g| g.clone())
+        .unwrap_or(AppUpdateState {
+            status: "failed".to_string(),
+            current: String::new(),
+            latest: String::new(),
+            download_url: String::new(),
+            sha256_url: None,
+        })
+}
+
+#[tauri::command]
+pub async fn update_app(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    if state.download_active.load(Ordering::SeqCst) {
+        return Err("İndirme sürerken güncelleme yapılamaz.".to_string());
+    }
+
+    if state
+        .app_update_active
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("Güncelleme zaten sürüyor.".to_string());
+    }
+
+    let (status, download_url, sha256_url) = {
+        let guard = match state.app_update_state.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                state.app_update_active.store(false, Ordering::SeqCst);
+                return Err(e.to_string());
+            }
+        };
+        (
+            guard.status.clone(),
+            guard.download_url.clone(),
+            guard.sha256_url.clone(),
+        )
+    };
+
+    if status != "available" || download_url.is_empty() {
+        state.app_update_active.store(false, Ordering::SeqCst);
+        return Err("Güncelleme yok.".to_string());
+    }
+
+    let res = install_app_update(&app, &download_url, sha256_url.as_deref()).await;
+    state.app_update_active.store(false, Ordering::SeqCst);
+
+    if let Err(ref e) = res {
+        log_error(&format!("App update failed: {e}"));
+    }
+
+    res
 }

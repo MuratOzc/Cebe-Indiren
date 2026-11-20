@@ -443,7 +443,51 @@ async function updateYtdlp() {
     }
 }
 
+async function pollAppUpdateStatus() {
+    try {
+        const data = await invoke('get_app_update_status');
+        if (data.current) {
+            document.getElementById('appVersion').innerText = data.current;
+        }
+        if (data.status === 'checking') {
+            setTimeout(pollAppUpdateStatus, 1000);
+            return;
+        }
+        if (data.status === 'available') {
+            document.getElementById('appUpdateText').innerText =
+                `Yeni uygulama s\u00fcr\u00fcm\u00fc var (${data.current} \u2192 ${data.latest})`;
+            document.getElementById('appUpdateBanner').classList.remove('hidden');
+        }
+    } catch (e) {
+        console.error("App update status failed", e);
+    }
+}
+
+async function updateApp() {
+    const btn = document.getElementById('appUpdateBtn');
+    const text = document.getElementById('appUpdateText');
+    btn.disabled = true;
+    btn.innerText = "\u0130ndiriliyor...";
+
+    let unlisten = null;
+    try {
+        unlisten = await listen('app-update-progress', (event) => {
+            const pct = event.payload?.percent ?? 0;
+            btn.innerText = pct < 100 ? `\u0130ndiriliyor... ${pct}%` : "Y\u00fckleniyor...";
+        });
+        await invoke('update_app');
+        text.innerText = "G\u00fcncellendi, yeniden ba\u015flat\u0131l\u0131yor...";
+    } catch (e) {
+        text.innerText = typeof e === 'string' ? e : "Uygulama g\u00fcncellemesi ba\u015far\u0131s\u0131z";
+        btn.disabled = false;
+        btn.innerText = "Tekrar Dene";
+    } finally {
+        if (unlisten) unlisten();
+    }
+}
+
 window.addEventListener('load', async () => {
+    pollAppUpdateStatus();
     pollUpdateStatus();
     try {
         const data = await invoke('get_config');

@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app_updater;
 mod binaries;
 mod commands;
 mod config;
@@ -8,6 +9,7 @@ mod ffmpeg;
 mod state;
 mod updater;
 
+use crate::app_updater::{cleanup_old_exe, start_app_update_check};
 use crate::binaries::ensure_binaries_ready;
 use crate::config::{initialize_download_dir, load_config, log_info};
 use crate::downloader::cleanup_temp_dir;
@@ -20,6 +22,7 @@ use tauri::{Manager, RunEvent};
 fn main() {
     let app = tauri::Builder::default()
         .setup(|app| {
+            cleanup_old_exe();
             ensure_binaries_ready();
 
             let cfg = load_config();
@@ -32,6 +35,7 @@ fn main() {
 
             let app_state = Arc::new(AppState::new(download_dir, resource_dir));
             start_update_check(Arc::clone(&app_state));
+            start_app_update_check(Arc::clone(&app_state));
             app.manage(app_state);
 
             Ok(())
@@ -46,6 +50,8 @@ fn main() {
             commands::cancel_download,
             commands::get_update_status,
             commands::update_ytdlp,
+            commands::get_app_update_status,
+            commands::update_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

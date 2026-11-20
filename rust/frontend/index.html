@@ -13,6 +13,10 @@
 
 <body>
     <div class="container">
+        <div id="appUpdateBanner" class="update-banner hidden">
+            <span id="appUpdateText"></span>
+            <button id="appUpdateBtn" type="button" onclick="updateApp()">G&uuml;ncelle</button>
+        </div>
         <div id="updateBanner" class="update-banner hidden">
             <span id="updateText"></span>
             <button id="updateBtn" type="button" onclick="updateYtdlp()">G&uuml;ncelle</button>
@@ -125,6 +129,8 @@
         </main>
 
     </div>
+
+    <div id="appVersion" class="app-version"></div>
 
     <script src="script.js"></script>
 </body>
