@@ -24,6 +24,12 @@ dist/
 ffmpeg/
 downloads/
 
+# Rust / Tauri
+rust/target/
+rust/gen/
+rust/binaries/
+node_modules/
+
 # IDEs / OS / Agents
 .agents/
 .vscode/
