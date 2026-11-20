@@ -1,13 +1,16 @@
-# Video Indiren
+# Video İndiren
 
-Video Indiren is a locally hosted desktop application for downloading videos seamlessly. Built with Python  it features a web-based user interface.
+Rust ve Tauri ile geliştirilmiş, `yt-dlp` ve `FFmpeg` destekli taşınabilir masaüstü video indirme uygulaması.
 
-## How it Works
+## Özellikler
+- Tek dosya taşınabilir `.exe` (kurulum gerektirmez)
+- Video kalitesi seçimi (4K, 1080p, 720p, 480p, En İyi), sadece ses ve oynatma listesi indirme
+- İndirme öncesi video kesme
+- Koyu / Açık tema desteği
+- Uygulama ve `yt-dlp` için tek tıkla otomatik güncelleme
 
-The application operates by running a lightweight local Python server (powered by FastAPI and Uvicorn). Upon startup, it automatically opens your default web browser to serve the user interface. 
+## Kullanım
+[Releases](https://github.com/anilyildiz8/Video-Indiren/releases/latest) sayfasından `VideoIndiren.exe` dosyasını indirip doğrudan çalıştırabilirsiniz.
 
-The underlying downloading tasks are handled via `yt-dlp`.
-
-## License
-
-Distributed under the MIT License. See LICENSE for more information.
+## Lisans
+MIT Lisansı ile dağıtılmaktadır. Detaylar için [LICENSE](LICENSE) dosyasına bakın.

@@ -12,6 +12,7 @@
 </head>
 
 <body>
+    <button id="themeToggle" class="theme-toggle" type="button" onclick="toggleTheme()" title="Tema değiştir">☀️</button>
     <div class="container">
         <div id="appUpdateBanner" class="update-banner hidden">
             <span id="appUpdateText"></span>
@@ -38,12 +39,12 @@
                     <label for="qualitySelect">Video Kalitesi</label>
                     <div class="input-group">
                         <select id="qualitySelect" class="quality-select"
-                            style="width: 100%; background: transparent; border: none; color: white; padding: 1rem; outline: none; cursor: pointer;">
-                            <option value="best" style="background: #1a1a1a;">En İyi</option>
-                            <option value="4k" style="background: #1a1a1a;">4K</option>
-                            <option value="1080p" style="background: #1a1a1a;">1080p</option>
-                            <option value="720p" style="background: #1a1a1a;">720p</option>
-                            <option value="480p" style="background: #1a1a1a;">480p</option>
+                            style="width: 100%; background: transparent; border: none; padding: 1rem; outline: none; cursor: pointer;">
+                            <option value="best">En İyi</option>
+                            <option value="4k">4K</option>
+                            <option value="1080p">1080p</option>
+                            <option value="720p">720p</option>
+                            <option value="480p">480p</option>
                         </select>
                     </div>
                 </div>
@@ -110,7 +111,7 @@
                     <span id="downloadSpeed">0 KB/s</span>
                 </div>
                 <div id="progressInfo"
-                    style="font-size: 0.8rem; color: #a0aec0; margin-bottom: 5px; text-align: center;">0.0MB / 0.0MB
+                    style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 5px; text-align: center;">0.0MB / 0.0MB
                 </div>
                 <div class="progress-bar-wrapper">
                     <div id="progressBar" class="progress-bar"></div>

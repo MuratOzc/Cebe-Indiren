@@ -1,6 +1,6 @@
 [package]
 name = "video-indiren"
-version = "2.0.3"
+version = "2.0.4"
 description = "Video Indiren - Desktop video downloader powered by yt-dlp and FFmpeg"
 edition = "2021"
 

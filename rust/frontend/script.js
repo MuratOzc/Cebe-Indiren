@@ -257,7 +257,7 @@ function updateSliderTrack() {
     const minPercent = (minSlider.value / videoDuration) * 100;
     const maxPercent = (maxSlider.value / videoDuration) * 100;
 
-    track.style.background = `linear-gradient(to right, rgba(255,255,255,0.1) ${minPercent}%, #a855f7 ${minPercent}%, #6366f1 ${maxPercent}%, rgba(255,255,255,0.1) ${maxPercent}%)`;
+    track.style.background = `linear-gradient(to right, var(--track-bg) ${minPercent}%, #a855f7 ${minPercent}%, #6366f1 ${maxPercent}%, var(--track-bg) ${maxPercent}%)`;
 }
 
 async function startDownload() {
@@ -486,7 +486,27 @@ async function updateApp() {
     }
 }
 
+function applyTheme(theme) {
+    const isLight = theme === 'light';
+    document.documentElement.setAttribute('data-theme', isLight ? 'light' : 'dark');
+    const btn = document.getElementById('themeToggle');
+    if (btn) {
+        btn.innerText = isLight ? '🌙' : '☀️';
+        btn.title = isLight ? 'Koyu moda geç' : 'Açık moda geç';
+    }
+}
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    const next = current === 'light' ? 'dark' : 'light';
+    localStorage.setItem('theme', next);
+    applyTheme(next);
+}
+
+applyTheme(localStorage.getItem('theme') || 'dark');
+
 window.addEventListener('load', async () => {
+    applyTheme(localStorage.getItem('theme') || 'dark');
     pollAppUpdateStatus();
     pollUpdateStatus();
     try {
