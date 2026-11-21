@@ -1,4 +1,4 @@
-use crate::binaries::resolve_ffmpeg;
+use crate::binaries::{resolve_ffmpeg, resolve_ffprobe, tool_command};
 use crate::config::{log_error, log_info};
 use crate::downloader::{next_line_lossy, report_progress};
 use crate::platform::NoConsole;
@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tauri::AppHandle;
 use tokio::io::BufReader;
-use tokio::process::Command;
 
 const STDERR_TAIL_LINES: usize = 40;
 
@@ -114,11 +113,8 @@ fn parse_probe(json: &str) -> Option<Media> {
 }
 
 pub async fn probe(path: &Path) -> Option<Media> {
-    let ffprobe = resolve_ffmpeg()
-        .map(|ffmpeg| ffmpeg.with_file_name("ffprobe.exe"))
-        .filter(|p| p.is_file())
-        .unwrap_or_else(|| PathBuf::from("ffprobe"));
-    let out = Command::new(ffprobe)
+    let ffprobe = resolve_ffprobe().unwrap_or_else(|| PathBuf::from("ffprobe"));
+    let out = tool_command(ffprobe)
         .args([
             "-v",
             "error",
@@ -267,7 +263,7 @@ pub async fn cut_media(
     let total = kept_seconds(intervals, media.duration);
     let ffmpeg_bin = resolve_ffmpeg().unwrap_or_else(|| PathBuf::from("ffmpeg"));
 
-    let mut cmd = Command::new(&ffmpeg_bin);
+    let mut cmd = tool_command(&ffmpeg_bin);
     cmd.args(args);
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())

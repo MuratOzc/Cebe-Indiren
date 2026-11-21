@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 // anything that does not match.
 const YTDLP_VERSION: &str = "2026.10.26";
 const YTDLP_SHA256: &str = "f5389d3698ecde4ef06f4e6b1ce0294fe9ac1396228c8990b8d3416d6d177a7d";
+const YTDLP_ZIPAPP_SHA256: &str = "e51e69e89489f199530f13d32a4342da3ddb2cf34842f364603a066db05afbf3";
 const FFMPEG_ZIP: (&str, &str) = (
     "https://github.com/GyanD/codexffmpeg/releases/download/9.1/ffmpeg-9.1-essentials_build.zip",
     "b9bbbb3acece000cbeec994f856649354e52c773807841e78908374b24d658fd",
@@ -75,6 +76,15 @@ fn ensure_bundled_binaries(dir: &Path) {
     }
 }
 
+fn ensure_ytdlp_zipapp(dir: &Path) {
+    fs::create_dir_all(dir).unwrap();
+    let ytdlp = dir.join("yt-dlp");
+    if !is_valid(&ytdlp, YTDLP_ZIPAPP_SHA256) {
+        let url = format!("https://github.com/yt-dlp/yt-dlp/releases/download/{YTDLP_VERSION}/yt-dlp");
+        write_verified(&ytdlp, &download(&url, YTDLP_ZIPAPP_SHA256), YTDLP_ZIPAPP_SHA256);
+    }
+}
+
 fn compress_into_out_dir(dir: &Path) {
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     for name in ["yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe"] {
@@ -93,17 +103,21 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=icons/icon.ico");
     println!("cargo:rerun-if-changed=icons/icon.png");
-    for name in ["yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe"] {
+    for name in ["yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe", "yt-dlp"] {
         println!("cargo:rerun-if-changed=binaries/{name}");
     }
 
     println!("cargo:rustc-env=BUNDLED_YTDLP_VERSION={YTDLP_VERSION}");
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        let dir = Path::new("binaries");
-        ensure_bundled_binaries(dir);
-        if std::env::var("PROFILE").as_deref() == Ok("release") {
-            compress_into_out_dir(dir);
+    let dir = Path::new("binaries");
+    match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("windows") => {
+            ensure_bundled_binaries(dir);
+            if std::env::var("PROFILE").as_deref() == Ok("release") {
+                compress_into_out_dir(dir);
+            }
         }
+        Ok("android") => ensure_ytdlp_zipapp(dir),
+        _ => {}
     }
     tauri_build::build()
 }

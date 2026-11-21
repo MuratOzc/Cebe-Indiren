@@ -1,5 +1,5 @@
 use crate::binaries::{
-    bin_dir, is_newer_ytdlp, resolve_ytdlp, write_binary, ytdlp_version_path, YTDLP_NAME,
+    bin_dir, is_newer_ytdlp, write_binary, ytdlp_command, ytdlp_version_path, YTDLP_NAME,
 };
 use crate::config::{log_info, log_warn};
 use crate::platform::NoConsole;
@@ -9,7 +9,6 @@ use std::fs;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::process::Command;
 
 const RELEASES_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases";
 const USER_AGENT: &str = "VideoIndiren-updater";
@@ -26,7 +25,7 @@ fn is_valid_tag(tag: &str) -> bool {
 }
 
 async fn active_ytdlp_version() -> Option<String> {
-    let out = Command::new(resolve_ytdlp())
+    let out = ytdlp_command()
         .arg("--version")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

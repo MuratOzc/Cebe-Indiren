@@ -1,4 +1,4 @@
-use crate::binaries::{resolve_ffmpeg, resolve_ytdlp};
+use crate::binaries::{resolve_ffmpeg, ytdlp_command as base_ytdlp_command};
 use crate::config::{default_quality, log_error, log_info, log_warn};
 use crate::ffmpeg::{self, time_to_seconds};
 use crate::history;
@@ -154,7 +154,7 @@ pub fn report_progress(app: &AppHandle, payload: ProgressPayload) {
 }
 
 fn ytdlp_command() -> Command {
-    let mut cmd = Command::new(resolve_ytdlp());
+    let mut cmd = base_ytdlp_command();
     // Without this yt-dlp writes piped output in the ANSI code page, which drops or
     // mangles non-ASCII titles and makes the reported final path unusable.
     cmd.args(["--encoding", "utf-8"])
@@ -724,8 +724,8 @@ fn build_ytdlp_args(
         add(&["--no-playlist"]);
     }
 
-    if let Some(parent) = ffmpeg_path.and_then(Path::parent) {
-        add(&["--ffmpeg-location", &parent.to_string_lossy()]);
+    if let Some(ffmpeg) = ffmpeg_path {
+        add(&["--ffmpeg-location", &ffmpeg.to_string_lossy()]);
     }
 
     if request.audio_only {

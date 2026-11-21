@@ -13,6 +13,8 @@ mod platform;
 mod sponsorblock;
 mod state;
 mod theme;
+#[cfg(target_os = "android")]
+mod tools_android;
 mod updater;
 
 #[cfg(windows)]
@@ -59,10 +61,15 @@ Yine de çıkmak istiyor musunuz?",
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(tools_android::plugin());
+    let app = builder
         .setup(|app| {
             #[cfg(mobile)]
             config::set_platform_dirs(app.path().app_data_dir()?, app.path().download_dir().ok());
+            #[cfg(target_os = "android")]
+            tools_android::prepare(app.handle());
 
             #[cfg(windows)]
             let just_updated = cleanup_old_exe();

@@ -1,10 +1,23 @@
-use crate::config::{app_data_dir, log_warn};
+use crate::config::app_data_dir;
+#[cfg(windows)]
+use crate::config::log_warn;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use tokio::process::Command;
 
+#[cfg(target_os = "android")]
+pub use crate::tools_android::{
+    resolve_ffmpeg, resolve_ffprobe, tool_command, ytdlp_command,
+};
+
+#[cfg(windows)]
 pub const YTDLP_NAME: &str = "yt-dlp.exe";
+#[cfg(not(windows))]
+pub const YTDLP_NAME: &str = "yt-dlp";
+#[cfg(windows)]
 const FFMPEG_NAME: &str = "ffmpeg.exe";
-#[cfg(not(debug_assertions))]
+#[cfg(windows)]
 const FFPROBE_NAME: &str = "ffprobe.exe";
 
 pub fn bin_dir() -> PathBuf {
@@ -22,12 +35,12 @@ pub fn is_newer_ytdlp(candidate: &str, than: &str) -> bool {
     matches!((parse(candidate), parse(than)), (Some(a), Some(b)) if a > b)
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(all(windows, not(debug_assertions)))]
 fn stamp_path() -> PathBuf {
     bin_dir().join("exe.stamp")
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(all(windows, not(debug_assertions)))]
 fn exe_stamp() -> Option<String> {
     let meta = fs::metadata(std::env::current_exe().ok()?).ok()?;
     let mtime = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
@@ -57,7 +70,7 @@ fn replace_binary(
     Ok(())
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(all(windows, not(debug_assertions)))]
 fn write_compressed_binary(dest: &Path, compressed: &[u8]) -> std::io::Result<()> {
     replace_binary(dest, |tmp| {
         let mut decoder = zstd::Decoder::new(compressed)?;
@@ -71,7 +84,7 @@ fn write_compressed_binary(dest: &Path, compressed: &[u8]) -> std::io::Result<()
 // Release builds embed the tools zstd-compressed (see build.rs) so VideoIndiren.exe is a single
 // portable file; they are unpacked on first launch and again whenever the exe itself changes.
 // yt-dlp needs ffprobe next to ffmpeg for SponsorBlock and other post-processing.
-#[cfg(not(debug_assertions))]
+#[cfg(all(windows, not(debug_assertions)))]
 pub fn ensure_binaries_ready() {
     use crate::config::{log_error, log_info};
 
@@ -115,22 +128,42 @@ pub fn ensure_binaries_ready() {
     }
 }
 
+#[cfg(windows)]
 fn resolve(name: &str) -> Option<PathBuf> {
     [bin_dir().join(name), Path::new("binaries").join(name)]
         .into_iter()
         .find(|path| path.is_file())
 }
 
+#[cfg(windows)]
 pub fn resolve_ytdlp() -> PathBuf {
     resolve(YTDLP_NAME).unwrap_or_else(|| PathBuf::from(YTDLP_NAME))
 }
 
+#[cfg(windows)]
 pub fn resolve_ffmpeg() -> Option<PathBuf> {
     let found = resolve(FFMPEG_NAME);
     if found.is_none() {
         log_warn("Bundled ffmpeg not found; falling back to system PATH.");
     }
     found
+}
+
+#[cfg(windows)]
+pub fn resolve_ffprobe() -> Option<PathBuf> {
+    resolve_ffmpeg()
+        .map(|ffmpeg| ffmpeg.with_file_name(FFPROBE_NAME))
+        .filter(|path| path.is_file())
+}
+
+#[cfg(windows)]
+pub fn tool_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    Command::new(program)
+}
+
+#[cfg(windows)]
+pub fn ytdlp_command() -> Command {
+    Command::new(resolve_ytdlp())
 }
 
 #[cfg(test)]
