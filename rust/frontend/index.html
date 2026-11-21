@@ -5,133 +5,298 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video İndiren</title>
+    <script src="theme.js"></script>
     <link rel="stylesheet" href="styles.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
 </head>
 
 <body>
-    <button id="themeToggle" class="theme-toggle" type="button" onclick="toggleTheme()" title="Tema değiştir">☀️</button>
-    <div class="container">
-        <div id="appUpdateBanner" class="update-banner hidden">
-            <span id="appUpdateText"></span>
-            <button id="appUpdateBtn" type="button" onclick="updateApp()">G&uuml;ncelle</button>
-        </div>
-        <div id="updateBanner" class="update-banner hidden">
-            <span id="updateText"></span>
-            <button id="updateBtn" type="button" onclick="updateYtdlp()">G&uuml;ncelle</button>
-        </div>
-        <header>
-            <h1>Video İndiren</h1>
-        </header>
+    <svg class="sprite" aria-hidden="true" focusable="false">
+        <symbol id="i-close" viewBox="0 0 24 24">
+            <path d="M6 6l12 12M18 6L6 18" />
+        </symbol>
+        <symbol id="i-play" viewBox="0 0 24 24">
+            <path d="M8 5.5v13l11-6.5z" />
+        </symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24">
+            <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.6a2 2 0 0 1 1.5.68L12 7.3h6.5A2.5 2.5 0 0 1 21 9.8v7.7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.500z" />
+        </symbol>
+        <symbol id="i-repeat" viewBox="0 0 24 24">
+            <path d="M20 11a8 8 0 0 0-14.300-4.900L4 8" />
+            <path d="M4 3.500V8h4.500M4 13a8 8 0 0 0 14.300 4.900L20 16" />
+            <path d="M20 20.500V16h-4.500" />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24">
+            <path d="M5 12.500l4.600 4.600L19 7.500" />
+        </symbol>
+        <symbol id="i-music" viewBox="0 0 24 24">
+            <path d="M9 18V6l11-2.500v12" />
+            <circle cx="6.500" cy="18" r="2.500" />
+            <circle cx="17.500" cy="15.500" r="2.500" />
+        </symbol>
+        <symbol id="i-film" viewBox="0 0 24 24">
+            <rect x="3" y="4.500" width="18" height="15" rx="2" />
+            <path d="M10 9v6l5-3z" />
+        </symbol>
+        <symbol id="i-list" viewBox="0 0 24 24">
+            <path d="M4 6.500h16M4 12h16M4 17.500h10" />
+        </symbol>
+        <symbol id="i-keyboard" viewBox="0 0 24 24">
+            <rect x="2.500" y="6" width="19" height="12" rx="2" />
+            <path d="M6.500 10h.1M10 10h.1M13.500 10h.1M17 10h.1M7.500 14h9" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24">
+            <path d="M6.500 9.500l5.500 5.500 5.500-5.500" />
+        </symbol>
+        <symbol id="i-paste" viewBox="0 0 24 24">
+            <rect x="5" y="4.500" width="14" height="16" rx="2" />
+            <path d="M9 4.500v-1h6v1M9 10.500h6M9 14.500h4" />
+        </symbol>
+        <symbol id="i-light" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.900 4.900l1.400 1.400M17.700 17.700l1.400 1.400M2 12h2M20 12h2M4.900 19.100l1.400-1.400M17.700 6.300l1.400-1.400" />
+        </symbol>
+        <symbol id="i-dark" viewBox="0 0 24 24">
+            <path d="M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500z" />
+        </symbol>
+    </svg>
 
-        <main>
-            <div class="input-section">
-                <div class="field">
-                    <label for="urlInput">Video URL</label>
-                    <div class="input-group">
-                        <input type="text" id="urlInput" placeholder="https://youtube.com/..." autocomplete="off">
-                    </div>
-                </div>
+    <div id="ambient" class="ambient" aria-hidden="true">
+        <div class="aurora aurora-a"></div>
+        <div class="aurora aurora-b"></div>
+        <div class="aurora aurora-c"></div>
+        <img class="ambient-img" alt="" referrerpolicy="no-referrer">
+        <img class="ambient-img" alt="" referrerpolicy="no-referrer">
+    </div>
 
-                <div class="field">
-                    <label for="qualitySelect">Video Kalitesi</label>
-                    <div class="input-group">
-                        <select id="qualitySelect" class="quality-select"
-                            style="width: 100%; background: transparent; border: none; padding: 1rem; outline: none; cursor: pointer;">
-                            <option value="best">En İyi</option>
-                            <option value="4k">4K</option>
-                            <option value="1080p">1080p</option>
-                            <option value="720p">720p</option>
-                            <option value="480p">480p</option>
-                        </select>
-                    </div>
-                </div>
+    <div id="dropOverlay" class="drop-overlay hidden" aria-hidden="true">Bağlantıyı bırakın</div>
 
-                <div class="options-row">
-                    <div class="option-item">
-                        <label class="switch">
-                            <input type="checkbox" id="audioOnlyToggle">
-                            <span class="slider"></span>
-                        </label>
-                        <span>Sadece Ses</span>
-                    </div>
-                    <div class="option-item">
-                        <label class="switch">
-                            <input type="checkbox" id="playlistToggle">
-                            <span class="slider"></span>
-                        </label>
-                        <span>Oynatma Listesi</span>
-                    </div>
-                </div>
-
-                <div class="field" id="trimmingSection" style="display: none;">
-                    <label>Video Kesme</label>
-
-                    <div class="video-info-box">
-                        <span id="videoTitleLabel">Video yükleniyor...</span>
-                        <span id="videoDurationLabel">00:00:00</span>
-                    </div>
-
-                    <!-- Dual Range Slider -->
-                    <div class="range-slider-container">
-                        <div class="slider-track" id="sliderTrack"></div>
-                        <input type="range" id="rangeMin" min="0" max="100" value="0" step="0.01">
-                        <input type="range" id="rangeMax" min="0" max="100" value="100" step="0.01">
-                    </div>
-
-                    <div class="input-group" style="gap: 10px; margin-top: 10px;">
-                        <input type="text" id="startTimeInput" placeholder="Başlangıç (örn: 00:01:30)"
-                            autocomplete="off">
-                        <input type="text" id="endTimeInput" placeholder="Bitiş (örn: 00:02:45)" autocomplete="off">
-                    </div>
-                </div>
-
-                <div class="field">
-                    <label for="dirInput">indirme klasörü</label>
-                    <div class="input-group">
-                        <input type="text" id="dirInput" placeholder="İndirme klasörü algılanıyor..." readonly>
-                        <button class="browse-btn" onclick="browseFolder()">Gözat</button>
-                    </div>
-                </div>
-
-                <button id="downloadBtn" onclick="startDownload()">
-                    <span id="btnText">İndir</span>
-                    <div class="loader" id="btnLoader"></div>
+    <div class="viewport">
+        <div class="page">
+            <div class="corner">
+                <button id="shortcutsBtn" class="icon-btn" type="button" title="Klavye kısayolları"
+                    aria-label="Klavye kısayolları">
+                    <svg class="ico"><use href="#i-keyboard" /></svg>
+                </button>
+                <button id="themeToggle" class="icon-btn" type="button">
+                    <svg class="ico"><use id="themeIcon" href="#i-dark" /></svg>
                 </button>
             </div>
 
-            <div id="statusMessage" class="status"></div>
+            <div class="app">
+                <h1>Video İndiren</h1>
 
-            <div id="progressContainer" class="progress-container hidden">
-                <div class="progress-header">
-                    <span id="progressPercent">0%</span>
-                    <span id="playlistCounter" class="playlist-counter"></span>
-                    <span id="downloadSpeed">0 KB/s</span>
+                <div id="appUpdateBanner" class="notice glass hidden">
+                    <span id="appUpdateText"></span>
+                    <button id="appUpdateBtn" class="link-btn" type="button">Güncelle</button>
                 </div>
-                <div id="progressInfo"
-                    style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 5px; text-align: center;">0.0MB / 0.0MB
+                <div id="updateBanner" class="notice glass hidden">
+                    <span id="updateText"></span>
+                    <button id="updateBtn" class="link-btn" type="button">Güncelle</button>
                 </div>
-                <div class="progress-bar-wrapper">
-                    <div id="progressBar" class="progress-bar"></div>
-                </div>
-                <button id="cancelBtn" class="cancel-btn" onclick="cancelDownload()">İptal Et</button>
+
+                <main>
+                    <section class="card glass composer">
+                        <div class="form">
+                            <div class="field">
+                                <div class="field-head">
+                                    <label for="urlInput">Bağlantı</label>
+                                    <span id="urlHint" class="field-hint">Her satıra bir bağlantı</span>
+                                </div>
+                                <div class="url-box">
+                                    <textarea id="urlInput" rows="1" wrap="off" placeholder="https://"
+                                        autocomplete="off" spellcheck="false" aria-describedby="urlHint"></textarea>
+                                    <button id="clearUrlBtn" class="icon-btn hidden" type="button" title="Temizle"
+                                        aria-label="Bağlantıları temizle">
+                                        <svg class="ico"><use href="#i-close" /></svg>
+                                    </button>
+                                    <button id="pasteBtn" class="icon-btn" type="button"
+                                        title="Panodaki bağlantıyı yapıştır"
+                                        aria-label="Panodaki bağlantıyı yapıştır">
+                                        <svg class="ico"><use href="#i-paste" /></svg>
+                                    </button>
+                                </div>
+                                <div id="clipChip" class="clip hidden">
+                                    <span>Panoda</span>
+                                    <span id="clipText" class="clip-text"></span>
+                                    <button id="clipAddBtn" class="link-btn" type="button">Ekle</button>
+                                    <button id="clipDismissBtn" class="link-btn quiet" type="button">Gizle</button>
+                                </div>
+                            </div>
+
+                            <div id="previewCard" class="preview hidden" aria-live="polite">
+                                <div class="thumb preview-media">
+                                    <svg class="ico"><use href="#i-film" /></svg>
+                                    <img id="previewThumb" class="hidden" alt="" referrerpolicy="no-referrer">
+                                </div>
+                                <div class="preview-text">
+                                    <span id="videoTitleLabel" class="preview-title"></span>
+                                    <span id="videoDurationLabel" class="meta"></span>
+                                    <div id="segmentBar" class="segments hidden" role="list"
+                                        aria-label="SponsorBlock bölümleri"></div>
+                                    <span id="segmentCaption" class="meta hidden"></span>
+                                </div>
+                            </div>
+
+                            <div class="pair">
+                                <div class="field">
+                                    <div class="field-head"><span class="label" id="modeLabel">Biçim</span></div>
+                                    <div class="seg" role="radiogroup" aria-labelledby="modeLabel">
+                                        <label><input type="radio" name="mode" id="modeVideo" value="video"
+                                                checked><span>Video</span></label>
+                                        <label><input type="radio" name="mode" id="modeAudio"
+                                                value="audio"><span>MP3</span></label>
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <div class="field-head"><label for="qualitySelect">Kalite</label></div>
+                                    <div class="select">
+                                        <select id="qualitySelect">
+                                            <option value="best">En iyi</option>
+                                            <option value="4k">4K</option>
+                                            <option value="1440p">1440p</option>
+                                            <option value="1080p">1080p</option>
+                                            <option value="720p">720p</option>
+                                            <option value="480p">480p</option>
+                                        </select>
+                                        <svg class="ico"><use href="#i-chevron" /></svg>
+                                    </div>
+                                    <div id="audioNote" class="box static hidden"
+                                        title="Kapak görseli ve etiketlerle">192 kbps</div>
+                                </div>
+                            </div>
+
+                            <div class="pair">
+                                <label class="switch">
+                                    <input type="checkbox" id="playlistToggle">
+                                    <span>Oynatma listesi</span>
+                                </label>
+                                <label class="switch"
+                                    title="YouTube videolarındaki sponsor, tanıtım ve abone ol bölümlerini SponsorBlock verileriyle çıkarır. Kesit seçtiyseniz kesitin içinde kalan bölümler de çıkarılır.">
+                                    <input type="checkbox" id="sponsorToggle">
+                                    <span>Sponsorları çıkar</span>
+                                </label>
+                            </div>
+
+                            <div class="field hidden" id="trimmingSection">
+                                <div class="field-head">
+                                    <label for="startTimeInput">Kesit</label>
+                                    <span id="trimLengthLabel" class="field-hint"></span>
+                                </div>
+                                <div class="trim-slider">
+                                    <div class="trim-track" id="sliderTrack" aria-hidden="true"></div>
+                                    <input type="range" id="rangeMin" min="0" max="100" value="0" step="0.01"
+                                        aria-label="Başlangıç">
+                                    <input type="range" id="rangeMax" min="0" max="100" value="100" step="0.01"
+                                        aria-label="Bitiş">
+                                </div>
+                                <div class="trim-inputs">
+                                    <input type="text" id="startTimeInput" placeholder="00:00:00"
+                                        aria-label="Başlangıç zamanı" autocomplete="off">
+                                    <span>–</span>
+                                    <input type="text" id="endTimeInput" placeholder="00:00:00"
+                                        aria-label="Bitiş zamanı" autocomplete="off">
+                                    <button id="trimResetBtn" class="link-btn" type="button">Sıfırla</button>
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <div class="field-head"><span class="label">Klasör</span></div>
+                                <div class="box folder">
+                                    <span id="dirInput" class="path">Klasör algılanıyor...</span>
+                                    <button id="browseBtn" class="btn" type="button">Gözat</button>
+                                </div>
+                            </div>
+
+                            <button id="downloadBtn" class="btn-primary" type="button">
+                                <span id="btnLabel">İndir</span>
+                            </button>
+                        </div>
+
+                        <section id="progressContainer" class="progress hidden">
+                            <div class="progress-head">
+                                <div class="thumb progress-media">
+                                    <svg class="ico"><use href="#i-film" /></svg>
+                                    <img id="progressThumb" class="hidden" alt="" referrerpolicy="no-referrer">
+                                </div>
+                                <div class="progress-main">
+                                    <div id="batchCounter" class="meta hidden"></div>
+                                    <div id="progressTitle" class="progress-title"></div>
+                                </div>
+                            </div>
+                            <div class="progress-stats">
+                                <div id="progressPercent" class="progress-percent">0%</div>
+                                <div class="progress-meta">
+                                    <span id="playlistCounter" class="hidden"></span>
+                                    <span id="downloadSpeed"></span>
+                                    <span id="progressInfo"></span>
+                                </div>
+                            </div>
+                            <div id="progressTrack" class="bar" role="progressbar" aria-label="İndirme ilerlemesi"
+                                aria-valuemin="0" aria-valuemax="100">
+                                <div id="progressBar" class="bar-fill"></div>
+                            </div>
+                            <canvas id="speedGraph" class="speed-graph" aria-hidden="true"></canvas>
+                            <ol id="queueList" class="queue hidden"></ol>
+                            <button id="cancelBtn" class="btn wide" type="button">İptal</button>
+                        </section>
+
+                        <div id="statusMessage" class="status" role="status" aria-live="polite"></div>
+                    </section>
+
+                    <section id="resultCard" class="card glass result hidden">
+                        <div class="result-head">
+                            <div class="thumb result-media">
+                                <svg class="ico"><use href="#i-check" /></svg>
+                                <img id="resultThumb" class="hidden" alt="" referrerpolicy="no-referrer">
+                            </div>
+                            <div class="result-text">
+                                <h2 id="resultTitle">İndirildi</h2>
+                                <p id="filePath" class="result-file"></p>
+                                <p id="resultMeta" class="meta"></p>
+                            </div>
+                        </div>
+                        <div class="result-actions">
+                            <button id="openFileBtn" class="btn" type="button">Oynat</button>
+                            <button id="openFolderBtn" class="btn" type="button">Klasörde göster</button>
+                            <button id="redownloadBtn" class="btn hidden" type="button"
+                                title="Var olan dosyaya dokunmadan ayrı bir kopya indirir">Kopya olarak indir</button>
+                        </div>
+                    </section>
+
+                    <details id="historySection" class="card glass history hidden">
+                        <summary>
+                            <span class="label">Geçmiş</span>
+                            <span id="historyCount" class="field-hint"></span>
+                            <svg class="ico history-chevron"><use href="#i-chevron" /></svg>
+                        </summary>
+                        <div class="history-tools">
+                            <input type="search" id="historySearch" placeholder="Geçmişte ara" autocomplete="off"
+                                spellcheck="false" aria-label="Geçmişte ara">
+                            <button id="clearHistoryBtn" class="link-btn quiet" type="button">Geçmişi temizle</button>
+                        </div>
+                        <ul id="historyList" class="history-list"></ul>
+                        <p id="historyEmpty" class="history-empty hidden">Eşleşen kayıt yok.</p>
+                    </details>
+                </main>
             </div>
 
-            <div id="resultCard" class="result-card hidden">
-                <div class="icon">✅</div>
-                <div class="details">
-                    <h3>İndirme Tamamlandı!</h3>
-                    <p id="filePath">Kaydedildi: ...</p>
-                </div>
-                <button class="icon-btn" onclick="openResultFolder()">📂</button>
-            </div>
-        </main>
-
+            <span id="appVersion" class="app-version"></span>
+        </div>
     </div>
 
-    <div id="appVersion" class="app-version"></div>
+    <dialog id="shortcutsDialog" class="sheet" aria-labelledby="shortcutsTitle">
+        <h2 id="shortcutsTitle">Klavye kısayolları</h2>
+        <dl class="shortcut-list">
+            <div><dt><kbd>Ctrl</kbd><kbd>V</kbd></dt><dd>Bağlantıyı yapıştır</dd></div>
+            <div><dt><kbd>Enter</kbd></dt><dd>İndir</dd></div>
+            <div><dt><kbd>Shift</kbd><kbd>Enter</kbd></dt><dd>Yeni satır</dd></div>
+            <div><dt><kbd>Ctrl</kbd><kbd>L</kbd></dt><dd>Bağlantı alanına git</dd></div>
+            <div><dt><kbd>Ctrl</kbd><kbd>M</kbd></dt><dd>Video / MP3</dd></div>
+            <div><dt><kbd>Esc</kbd></dt><dd>İndirmeyi iptal et</dd></div>
+        </dl>
+        <p class="sheet-note">Bağlantılar pencereye sürüklenip bırakılabilir.</p>
+        <form method="dialog"><button class="btn" type="submit">Kapat</button></form>
+    </dialog>
 
     <script src="script.js"></script>
 </body>

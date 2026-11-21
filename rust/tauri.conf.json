@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Video Indiren",
-  "version": "2.0.4",
   "identifier": "com.videoindiren.app",
   "build": {
     "frontendDist": "frontend"
@@ -10,17 +9,19 @@
     "withGlobalTauri": true,
     "windows": [
       {
+        "create": false,
         "title": "Video İndiren",
-        "width": 680,
-        "height": 820,
+        "width": 720,
+        "height": 880,
         "minWidth": 480,
         "minHeight": 640,
         "resizable": true,
-        "backgroundColor": "#0f0f13"
+        "dragDropEnabled": false,
+        "backgroundColor": "#17171a"
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' https: data:; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
     }
   },
   "bundle": {
