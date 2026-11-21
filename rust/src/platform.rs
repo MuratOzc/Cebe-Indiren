@@ -138,6 +138,10 @@ impl KeepAwake {
 
 pub fn media_changed(_paths: &[&Path]) {}
 
+pub fn shared_text() -> Option<String> {
+    None
+}
+
 pub fn hide_path(path: &Path) {
     let wide: Vec<u16> = path
         .as_os_str()

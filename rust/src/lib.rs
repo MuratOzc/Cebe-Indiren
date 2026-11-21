@@ -131,6 +131,7 @@ pub fn run() {
             commands::set_theme,
             commands::set_sponsorblock,
             commands::clipboard_links,
+            commands::shared_links,
             commands::select_folder,
             commands::open_folder,
             commands::open_file,

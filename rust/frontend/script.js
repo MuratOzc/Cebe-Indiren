@@ -1254,6 +1254,20 @@ function acceptClipboardLinks() {
     if (links.length && !isDownloading) addLinks(links);
 }
 
+async function takeSharedLinks() {
+    if (isDownloading) return;
+    try {
+        const links = await invoke('shared_links');
+        if (Array.isArray(links) && links.length && !isDownloading) addLinks(links);
+    } catch (e) {
+        console.error("Failed to read shared links", e);
+    }
+}
+
+function onAppShown() {
+    takeSharedLinks().then(suggestClipboardLinks);
+}
+
 async function pasteFromClipboard() {
     if (isDownloading) return;
     const links = await readClipboardLinks();
@@ -1696,9 +1710,10 @@ function init() {
     });
     refreshThemeToggle();
 
-    window.addEventListener('focus', suggestClipboardLinks);
+    window.addEventListener('focus', onAppShown);
     document.addEventListener('visibilitychange', () => {
         el.ambient.classList.toggle('paused', document.hidden);
+        if (!document.hidden) onAppShown();
     });
 
     restoreHistoryOpen();
@@ -1710,7 +1725,7 @@ function init() {
     refreshFormatControls();
     pollAppUpdateStatus();
     pollUpdateStatus();
-    loadConfig().then(suggestClipboardLinks);
+    loadConfig().then(onAppShown);
     loadHistory();
     el.urlInput.focus();
 }

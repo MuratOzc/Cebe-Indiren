@@ -4,6 +4,8 @@ import android.Manifest
 import android.app.Activity
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaScannerConnection
@@ -14,6 +16,8 @@ import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
 import androidx.activity.result.ActivityResult
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -32,18 +36,93 @@ class PathArgs {
 }
 
 @InvokeArg
+class PercentArgs {
+  var percent: Int = -1
+}
+
+@InvokeArg
+class FinishedArgs {
+  var ok: Boolean = false
+  var text: String = ""
+}
+
+@InvokeArg
 class PathsArgs {
   var paths: Array<String> = emptyArray()
 }
 
 @TauriPlugin
 class AndroidPlugin(private val activity: Activity) : Plugin(activity) {
+  private var sharedText: String? = null
+
   override fun load(webView: android.webkit.WebView) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
-      activity.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
-    ) {
-      activity.requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), 1)
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) requestPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+    keepShared(activity.intent)
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    keepShared(intent)
+  }
+
+  private fun keepShared(intent: Intent?) {
+    if (intent?.action != Intent.ACTION_SEND) return
+    val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+    val links = LINK.findAll(text).map { it.value.trimEnd('.', ',', ')', '"', '\'') }.distinct().toList()
+    if (links.isNotEmpty()) sharedText = links.joinToString("\n")
+    intent.action = null
+  }
+
+  private fun requestPermission(permission: String) {
+    if (activity.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
+      activity.requestPermissions(arrayOf(permission), 1)
     }
+  }
+
+  private fun textResult(text: String?): JSObject {
+    val result = JSObject()
+    if (text != null) result.put("text", text)
+    return result
+  }
+
+  @Command
+  fun takeSharedText(invoke: Invoke) {
+    val text = sharedText
+    sharedText = null
+    invoke.resolve(textResult(text))
+  }
+
+  @Command
+  fun readClipboard(invoke: Invoke) {
+    val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(activity)?.toString()
+    invoke.resolve(textResult(text))
+  }
+
+  @Command
+  fun startService(invoke: Invoke) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) requestPermission(Manifest.permission.POST_NOTIFICATIONS)
+    DownloadService.start(activity.applicationContext)
+    invoke.resolve()
+  }
+
+  @Command
+  fun showProgress(invoke: Invoke) {
+    DownloadService.progress(activity.applicationContext, invoke.parseArgs(PercentArgs::class.java).percent)
+    invoke.resolve()
+  }
+
+  @Command
+  fun notifyFinished(invoke: Invoke) {
+    val args = invoke.parseArgs(FinishedArgs::class.java)
+    val inForeground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+    if (!inForeground) DownloadService.finished(activity.applicationContext, args.ok, args.text)
+    invoke.resolve()
+  }
+
+  @Command
+  fun stopService(invoke: Invoke) {
+    DownloadService.stop()
+    invoke.resolve()
   }
 
   @Command
@@ -147,5 +226,6 @@ class AndroidPlugin(private val activity: Activity) : Plugin(activity) {
 
   companion object {
     private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
+    private val LINK = Regex("https?://\\S+")
   }
 }

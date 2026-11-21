@@ -75,8 +75,15 @@ pub fn set_sponsorblock(sponsorblock: bool) {
 }
 
 #[tauri::command]
-pub fn clipboard_links() -> Vec<String> {
+pub async fn clipboard_links() -> Vec<String> {
     platform::clipboard_text()
+        .map(|text| links_in(&text))
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub async fn shared_links() -> Vec<String> {
+    platform::shared_text()
         .map(|text| links_in(&text))
         .unwrap_or_default()
 }
@@ -215,6 +222,12 @@ pub async fn start_download(
         if !window.is_focused().unwrap_or(true) {
             let _ = window.request_user_attention(Some(UserAttentionType::Informational));
         }
+    }
+    #[cfg(target_os = "android")]
+    match &res {
+        Ok(done) => platform::download_finished(true, &done.filename),
+        Err(e) if e != crate::downloader::CANCELLED => platform::download_finished(false, e),
+        Err(_) => {}
     }
     res
 }

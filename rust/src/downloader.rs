@@ -24,7 +24,7 @@ use tokio::process::Command;
 const INFO_TIMEOUT: Duration = Duration::from_secs(45);
 const STALE_TEMP_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const TEMP_DIR_PREFIX: &str = ".videoindiren_tmp_";
-const CANCELLED: &str = "DOWNLOAD_CANCELLED";
+pub const CANCELLED: &str = "DOWNLOAD_CANCELLED";
 const TRIM_SOURCE_DIR: &str = "full";
 const THUMBNAIL_DIR: &str = "thumbs";
 const NOTHING_DOWNLOADED: &str = "İndirilecek video bulunamadı.";
@@ -114,6 +114,8 @@ fn set_taskbar_progress(app: &AppHandle, value: i32) {
     }
     #[cfg(desktop)]
     show_taskbar_progress(app, value);
+    #[cfg(target_os = "android")]
+    crate::platform::show_progress(value);
 }
 
 #[cfg(desktop)]
