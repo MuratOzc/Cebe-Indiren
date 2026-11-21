@@ -22,3 +22,8 @@
 # Tauri finds the plugin, its commands and argument classes by reflection.
 -keep class com.videoindiren.app.** { *; }
 -keep class com.yausername.** { *; }
+# youtubedl-android unzips its tools with commons-compress, which looks classes up by reflection.
+-keep class org.apache.commons.** { *; }
+-keep class com.fasterxml.jackson.** { *; }
+-dontwarn org.apache.commons.**
+-dontwarn com.fasterxml.jackson.**
