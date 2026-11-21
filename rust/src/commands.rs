@@ -82,6 +82,26 @@ pub async fn clipboard_links() -> Vec<String> {
 }
 
 #[tauri::command]
+pub async fn sign_in(url: String) -> Result<bool, String> {
+    platform::sign_in(url).await
+}
+
+#[tauri::command]
+pub async fn import_cookies() -> Result<bool, String> {
+    platform::import_cookies().await
+}
+
+#[tauri::command]
+pub async fn clear_cookies() -> Result<bool, String> {
+    platform::clear_cookies().await
+}
+
+#[tauri::command]
+pub fn cookies_saved() -> bool {
+    platform::cookies_saved()
+}
+
+#[tauri::command]
 pub async fn shared_links() -> Vec<String> {
     platform::shared_text()
         .map(|text| links_in(&text))

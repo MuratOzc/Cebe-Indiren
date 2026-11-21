@@ -317,6 +317,9 @@ fn update_may_help(raw: &str) -> bool {
 
 pub fn friendly_error(raw: &str) -> String {
     if let Some(msg) = known_error_message(raw) {
+        #[cfg(target_os = "android")]
+        return msg.replace("Tarayıcınızda siteye", "Siteye");
+        #[cfg(not(target_os = "android"))]
         return msg.to_string();
     }
 
@@ -566,7 +569,7 @@ async fn run_info_lookup(
     let mut args: Vec<&str> = info_args(url, playlist);
     if let Some(browser) = browser_cookies {
         let insert_at = args.len().saturating_sub(2);
-        args.splice(insert_at..insert_at, ["--cookies-from-browser", browser]);
+        args.splice(insert_at..insert_at, [COOKIE_OPTION, browser]);
     }
 
     let child = ytdlp_command().args(args).spawn().map_err(|e| {
@@ -783,7 +786,7 @@ fn build_ytdlp_args(
     }
 
     if let Some(browser) = browser_cookies {
-        add(&["--cookies-from-browser", browser]);
+        add(&[COOKIE_OPTION, browser]);
     }
 
     add(&["--", url]);
@@ -1243,6 +1246,12 @@ fn display_path(path: &Path) -> String {
     strip_verbatim_prefix(&resolved.to_string_lossy())
 }
 
+#[cfg(not(target_os = "android"))]
+const COOKIE_OPTION: &str = "--cookies-from-browser";
+#[cfg(target_os = "android")]
+const COOKIE_OPTION: &str = "--cookies";
+
+#[cfg(not(target_os = "android"))]
 fn firefox_fork_cookie_sources() -> Vec<String> {
     let Some(roaming) = dirs::config_dir() else {
         return Vec::new();
@@ -1268,6 +1277,17 @@ fn firefox_fork_cookie_sources() -> Vec<String> {
         .collect()
 }
 
+#[cfg(target_os = "android")]
+fn browser_cookie_sources() -> Vec<String> {
+    let file = crate::android::cookies_file();
+    if file.is_file() {
+        vec![file.to_string_lossy().into_owned()]
+    } else {
+        Vec::new()
+    }
+}
+
+#[cfg(not(target_os = "android"))]
 fn browser_cookie_sources() -> Vec<String> {
     let mut sources = vec!["firefox".to_string()];
     sources.extend(firefox_fork_cookie_sources());

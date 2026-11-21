@@ -77,6 +77,10 @@ pub fn call<T: DeserializeOwned>(command: &str, payload: impl Serialize) -> Resu
         .map_err(|e| e.to_string())
 }
 
+pub fn cookies_file() -> PathBuf {
+    crate::config::app_data_dir().join("cookies.txt")
+}
+
 pub fn public_download_dir() -> PathBuf {
     let root = std::env::var("EXTERNAL_STORAGE").unwrap_or_else(|_| "/storage/emulated/0".into());
     PathBuf::from(root).join("Download")

@@ -281,6 +281,13 @@ h1, h2, p, ul, ol, dl, dd {
     color: var(--ink-2);
 }
 
+.app-cookies {
+    position: absolute;
+    right: 16px;
+    bottom: 8px;
+    font-size: 12.5px;
+}
+
 h1 {
     margin: 0 0 calc(var(--gap) * 0.85) 2px;
     font-size: var(--title);
@@ -1182,6 +1189,25 @@ kbd {
     gap: 4px;
     flex: none;
     width: 112px;
+}
+
+.sheet-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.sheet-actions .btn {
+    margin-left: 0;
+}
+
+.sign-in-row {
+    margin-top: 10px;
+}
+
+.composer.busy .sign-in-row {
+    display: none;
 }
 
 .sheet-note {

@@ -240,6 +240,9 @@
                         </section>
 
                         <div id="statusMessage" class="status" role="status" aria-live="polite"></div>
+                        <div id="signInRow" class="sign-in-row hidden">
+                            <button id="signInBtn" class="btn" type="button">Giriş yap</button>
+                        </div>
                     </section>
 
                     <section id="resultCard" class="card glass result hidden">
@@ -280,6 +283,7 @@
             </div>
 
             <span id="appVersion" class="app-version"></span>
+            <button id="cookiesBtn" class="link-btn quiet app-cookies hidden" type="button">Çerezler</button>
         </div>
     </div>
 
@@ -301,6 +305,16 @@
         <h2 id="patchNotesTitle">Yenilikler</h2>
         <div id="patchNotesBody" class="patch-notes"></div>
         <form method="dialog"><button class="btn" type="submit">Tamam</button></form>
+    </dialog>
+
+    <dialog id="cookiesDialog" class="sheet" aria-labelledby="cookiesTitle">
+        <h2 id="cookiesTitle">Çerezler</h2>
+        <p id="cookiesState" class="sheet-note"></p>
+        <div class="sheet-actions">
+            <button id="importCookiesBtn" class="btn" type="button">cookies.txt içe aktar</button>
+            <button id="clearCookiesBtn" class="btn" type="button">Çerezleri sil</button>
+        </div>
+        <form method="dialog"><button class="btn" type="submit">Kapat</button></form>
     </dialog>
 
     <script src="script.js"></script>

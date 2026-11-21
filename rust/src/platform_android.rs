@@ -53,6 +53,39 @@ struct PickedFolder {
     path: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Saved {
+    saved: bool,
+}
+
+async fn cookie_call(command: &'static str, url: Option<String>) -> Result<bool, String> {
+    let file = android::cookies_file().to_string_lossy().into_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let payload = serde_json::json!({ "path": file, "url": url.unwrap_or_default() });
+        android::call::<Saved>(command, payload).map(|result| result.saved)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub async fn sign_in(url: String) -> Result<bool, String> {
+    cookie_call("signIn", Some(url)).await
+}
+
+pub async fn import_cookies() -> Result<bool, String> {
+    cookie_call("importCookies", None).await
+}
+
+pub async fn clear_cookies() -> Result<bool, String> {
+    let _ = std::fs::remove_file(android::cookies_file());
+    cookie_call("clearCookies", None).await
+}
+
+pub fn cookies_saved() -> bool {
+    android::cookies_file().is_file()
+}
+
 pub async fn pick_folder(initial: String) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         android::call::<PickedFolder>("pickFolder", PathArg { path: &initial }).map(|picked| picked.path)

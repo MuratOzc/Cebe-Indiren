@@ -17,6 +17,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const SEGMENT_LABELS = { sponsor: "Sponsor", selfpromo: "Kendi tanıtımı", interaction: "Abone ol hatırlatması" };
 
 const $ = (id) => document.getElementById(id);
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
 
 const el = {
     urlInput: $('urlInput'),
@@ -90,6 +91,13 @@ const el = {
     shortcutsBtn: $('shortcutsBtn'),
     shortcutsDialog: $('shortcutsDialog'),
     patchNotesDialog: $('patchNotesDialog'),
+    signInRow: $('signInRow'),
+    signInBtn: $('signInBtn'),
+    cookiesBtn: $('cookiesBtn'),
+    cookiesDialog: $('cookiesDialog'),
+    cookiesState: $('cookiesState'),
+    importCookiesBtn: $('importCookiesBtn'),
+    clearCookiesBtn: $('clearCookiesBtn'),
     patchNotesTitle: $('patchNotesTitle'),
     patchNotesBody: $('patchNotesBody'),
     dropOverlay: $('dropOverlay'),
@@ -928,6 +936,7 @@ async function startDownload(override) {
     isDownloading = true;
     cancelRequested = false;
     setStatus("");
+    hideSignIn();
     hideResult();
     hideClipChip();
     for (const request of requests) usedLinks.add(request.url);
@@ -989,6 +998,7 @@ async function startDownload(override) {
         setStatus("İndirme iptal edildi.", 'info');
     } else if (failed.length) {
         setStatus(failed[0].message, 'error');
+        offerSignIn(failed[0].request, failed[0].message);
     } else {
         reportSingleOutcome(done[0].request, done[0].data);
     }
@@ -1191,7 +1201,63 @@ function addLinks(links) {
 }
 
 function modalOpen() {
-    return el.shortcutsDialog.open || el.patchNotesDialog.open;
+    return el.shortcutsDialog.open || el.patchNotesDialog.open || el.cookiesDialog.open;
+}
+
+let signInRequest = null;
+
+function hideSignIn() {
+    signInRequest = null;
+    el.signInRow.classList.add('hidden');
+}
+
+function offerSignIn(request, message) {
+    if (!IS_ANDROID || !/giriş yap/i.test(message)) return;
+    signInRequest = request;
+    el.signInRow.classList.remove('hidden');
+}
+
+async function signInAndRetry() {
+    const request = signInRequest;
+    if (!request || isDownloading) return;
+    hideSignIn();
+    try {
+        if (await invoke('sign_in', { url: request.url })) {
+            startDownload(request);
+        } else {
+            setStatus("Giriş tamamlanmadı; çerez kaydedilmedi.", 'info');
+            offerSignIn(request, "giriş yap");
+        }
+    } catch (e) {
+        setStatus(errorText(e, "Giriş ekranı açılamadı."), 'error');
+    }
+}
+
+async function refreshCookiesState(note) {
+    let saved = false;
+    try {
+        saved = await invoke('cookies_saved');
+    } catch (e) {
+        console.error("Failed to read cookie state", e);
+    }
+    el.cookiesState.textContent = note || (saved
+        ? "Kayıtlı çerezler var; oturum isteyen videolarda kullanılır."
+        : "Kayıtlı çerez yok. Oturum isteyen bir videoda \"Giriş yap\" düğmesi çıkar; bilgisayardan dışa aktarılmış bir cookies.txt da içe aktarabilirsiniz.");
+    el.clearCookiesBtn.disabled = !saved;
+}
+
+async function openCookies() {
+    await refreshCookiesState();
+    el.cookiesDialog.showModal();
+}
+
+async function runCookieAction(command, doneNote) {
+    try {
+        const changed = await invoke(command);
+        await refreshCookiesState(changed || command === 'clear_cookies' ? doneNote : "");
+    } catch (e) {
+        await refreshCookiesState(errorText(e, "İşlem başarısız."));
+    }
 }
 
 function pasteIntoUrlField(e) {
@@ -1708,6 +1774,14 @@ function init() {
     el.patchNotesDialog.addEventListener('click', (e) => {
         if (e.target === el.patchNotesDialog) el.patchNotesDialog.close();
     });
+    el.signInBtn.addEventListener('click', signInAndRetry);
+    if (IS_ANDROID) el.cookiesBtn.classList.remove('hidden');
+    el.cookiesBtn.addEventListener('click', openCookies);
+    el.cookiesDialog.addEventListener('click', (e) => {
+        if (e.target === el.cookiesDialog) el.cookiesDialog.close();
+    });
+    el.importCookiesBtn.addEventListener('click', () => runCookieAction('import_cookies', "Çerezler içe aktarıldı."));
+    el.clearCookiesBtn.addEventListener('click', () => runCookieAction('clear_cookies', "Çerezler silindi."));
     refreshThemeToggle();
 
     window.addEventListener('focus', onAppShown);

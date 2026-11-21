@@ -142,6 +142,24 @@ pub fn shared_text() -> Option<String> {
     None
 }
 
+const BROWSER_COOKIES: &str = "Windows'ta çerezler tarayıcılardan otomatik alınır.";
+
+pub async fn sign_in(_url: String) -> Result<bool, String> {
+    Err(BROWSER_COOKIES.to_string())
+}
+
+pub async fn import_cookies() -> Result<bool, String> {
+    Err(BROWSER_COOKIES.to_string())
+}
+
+pub async fn clear_cookies() -> Result<bool, String> {
+    Err(BROWSER_COOKIES.to_string())
+}
+
+pub fn cookies_saved() -> bool {
+    false
+}
+
 pub fn hide_path(path: &Path) {
     let wide: Vec<u16> = path
         .as_os_str()

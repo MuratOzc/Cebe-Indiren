@@ -13,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
+import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
 import androidx.activity.result.ActivityResult
 import androidx.core.content.FileProvider
@@ -47,6 +48,12 @@ class FinishedArgs {
 }
 
 @InvokeArg
+class CookieArgs {
+  var path: String = ""
+  var url: String = ""
+}
+
+@InvokeArg
 class PathsArgs {
   var paths: Array<String> = emptyArray()
 }
@@ -54,6 +61,7 @@ class PathsArgs {
 @TauriPlugin
 class AndroidPlugin(private val activity: Activity) : Plugin(activity) {
   private var sharedText: String? = null
+  private var cookiesPath: String? = null
 
   override fun load(webView: android.webkit.WebView) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) requestPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
@@ -176,6 +184,66 @@ class AndroidPlugin(private val activity: Activity) : Plugin(activity) {
     } catch (e: ActivityNotFoundException) {
       invoke.reject("İndirilenler klasörü açılamadı.")
     }
+  }
+
+  private fun savedResult(saved: Boolean): JSObject {
+    val result = JSObject()
+    result.put("saved", saved)
+    return result
+  }
+
+  @Command
+  fun signIn(invoke: Invoke) {
+    val args = invoke.parseArgs(CookieArgs::class.java)
+    val intent = Intent(activity, SignInActivity::class.java)
+      .putExtra(SignInActivity.EXTRA_URL, args.url)
+      .putExtra(SignInActivity.EXTRA_PATH, args.path)
+    startActivityForResult(invoke, intent, "signInDone")
+  }
+
+  @ActivityCallback
+  fun signInDone(invoke: Invoke, result: ActivityResult) {
+    invoke.resolve(savedResult(result.resultCode == Activity.RESULT_OK))
+  }
+
+  @Command
+  fun importCookies(invoke: Invoke) {
+    cookiesPath = invoke.parseArgs(CookieArgs::class.java).path
+    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+      .addCategory(Intent.CATEGORY_OPENABLE)
+      .setType("*/*")
+    startActivityForResult(invoke, intent, "cookiesPicked")
+  }
+
+  @ActivityCallback
+  fun cookiesPicked(invoke: Invoke, result: ActivityResult) {
+    val uri = result.data?.data
+    val path = cookiesPath
+    if (result.resultCode != Activity.RESULT_OK || uri == null || path == null) {
+      invoke.resolve(savedResult(false))
+      return
+    }
+    try {
+      val text = activity.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+      val cookies = text.lines().count { line ->
+        val cookie = line.removePrefix("#HttpOnly_")
+        !cookie.startsWith("#") && cookie.split('\t').size == 7
+      }
+      if (cookies == 0) {
+        invoke.reject("Bu dosyada çerez bulunamadı. Netscape biçiminde bir cookies.txt seçin.")
+        return
+      }
+      File(path).apply { parentFile?.mkdirs() }.writeText(text)
+      invoke.resolve(savedResult(true))
+    } catch (e: Exception) {
+      invoke.reject(e.message ?: e.toString())
+    }
+  }
+
+  @Command
+  fun clearCookies(invoke: Invoke) {
+    CookieManager.getInstance().removeAllCookies { CookieManager.getInstance().flush() }
+    invoke.resolve(savedResult(false))
   }
 
   @Command
