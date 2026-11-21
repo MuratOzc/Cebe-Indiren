@@ -26,7 +26,7 @@ android {
     namespace = "com.videoindiren.app"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "com.videoindiren.app"
+        applicationId = "com.cebeindiren.app"
         minSdk = 24
         targetSdk = 37
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">"Video İndiren"</string>
-    <string name="main_activity_title">"Video İndiren"</string>
-    <string name="share_label">"Video İndiren ile indir"</string>
+    <string name="app_name">"Cebe İndiren"</string>
+    <string name="main_activity_title">"Cebe İndiren"</string>
+    <string name="share_label">"Cebe İndiren ile indir"</string>
 </resources>

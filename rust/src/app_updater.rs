@@ -26,12 +26,12 @@ const ASSET_NAME: &str = "VideoIndiren.exe";
 const ASSET_MAGIC: &[u8; 2] = b"MZ";
 #[cfg(target_os = "android")]
 const API_LATEST_URL: &str =
-    "https://api.github.com/repos/MuratOzc/Video-Indiren-Pro-Max/releases/latest";
+    "https://api.github.com/repos/MuratOzc/Cebe-Indiren/releases/latest";
 #[cfg(target_os = "android")]
 const ALLOWED_URL_PREFIX: &str =
-    "https://github.com/MuratOzc/Video-Indiren-Pro-Max/releases/download/";
+    "https://github.com/MuratOzc/Cebe-Indiren/releases/download/";
 #[cfg(target_os = "android")]
-const ASSET_NAME: &str = "VideoIndiren.apk";
+const ASSET_NAME: &str = "CebeIndiren.apk";
 #[cfg(target_os = "android")]
 const ASSET_MAGIC: &[u8; 2] = b"PK";
 const USER_AGENT: &str = "VideoIndiren-updater";
