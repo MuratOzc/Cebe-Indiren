@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
-const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+const APP_VERSION: &str = env!("APP_VERSION");
 #[cfg(not(target_os = "android"))]
 const API_LATEST_URL: &str =
     "https://api.github.com/repos/anilyildiz8/Video-Indiren/releases/latest";

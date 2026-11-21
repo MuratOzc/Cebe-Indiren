@@ -99,8 +99,21 @@ fn compress_into_out_dir(dir: &Path) {
     }
 }
 
+// Android releases are numbered on their own (tauri.android.conf.json), apart from Windows.
+fn app_version() -> String {
+    let cargo = std::env::var("CARGO_PKG_VERSION").unwrap();
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("android") {
+        return cargo;
+    }
+    let config = fs::read_to_string("tauri.android.conf.json").unwrap();
+    let config: serde_json::Value = serde_json::from_str(&config).unwrap();
+    config["version"].as_str().map_or(cargo, str::to_string)
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=tauri.android.conf.json");
+    println!("cargo:rustc-env=APP_VERSION={}", app_version());
     println!("cargo:rerun-if-changed=icons/icon.ico");
     println!("cargo:rerun-if-changed=icons/icon.png");
     for name in ["yt-dlp.exe", "ffmpeg.exe", "ffprobe.exe", "yt-dlp"] {

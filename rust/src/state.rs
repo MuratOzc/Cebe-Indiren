@@ -93,7 +93,7 @@ impl AppState {
             }),
             app_update_state: Mutex::new(AppUpdateState {
                 status: "checking".to_string(),
-                current: format!("v{}", env!("CARGO_PKG_VERSION")),
+                current: format!("v{}", env!("APP_VERSION")),
                 ..AppUpdateState::default()
             }),
             app_update_active: AtomicBool::new(false),
