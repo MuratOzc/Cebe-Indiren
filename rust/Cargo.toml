@@ -1,6 +1,6 @@
 [package]
 name = "video-indiren"
-version = "2.0.4"
+version = "2.0.5"
 description = "Video Indiren - Desktop video downloader powered by yt-dlp and FFmpeg"
 edition = "2021"
 
@@ -10,6 +10,10 @@ path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+zstd = { version = "0.13", features = ["zstdmt"] }
+sha2 = "0.10"
+ureq = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
@@ -21,3 +25,10 @@ sha2 = "0.10"
 rfd = "0.15"
 dirs = "6"
 chrono = "0.4"
+zstd = "0.13"
+
+[profile.dev.build-override]
+opt-level = 3
+
+[profile.release.build-override]
+opt-level = 3

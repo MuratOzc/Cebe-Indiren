@@ -1,61 +1,52 @@
-#[allow(unused_imports)]
-use crate::config::{app_data_dir, log_error, log_info, log_warn};
+use crate::config::{app_data_dir, log_warn};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
 
-#[cfg(windows)]
-const YTDLP_NAME: &str = "yt-dlp.exe";
-#[cfg(not(windows))]
-const YTDLP_NAME: &str = "yt-dlp";
-
-#[cfg(windows)]
+pub const YTDLP_NAME: &str = "yt-dlp.exe";
 const FFMPEG_NAME: &str = "ffmpeg.exe";
-#[cfg(not(windows))]
-const FFMPEG_NAME: &str = "ffmpeg";
+#[cfg(not(debug_assertions))]
+const FFPROBE_NAME: &str = "ffprobe.exe";
 
-// Embedded directly into release builds so VideoIndiren.exe is a single portable file.
-// Dev builds keep reading binaries/ from disk so incremental rebuilds stay fast.
-#[cfg(all(not(debug_assertions), windows))]
-const EMBEDDED_YTDLP: &[u8] = include_bytes!("../binaries/yt-dlp.exe");
-#[cfg(all(not(debug_assertions), windows))]
-const EMBEDDED_FFMPEG: &[u8] = include_bytes!("../binaries/ffmpeg.exe");
-
-pub fn update_bin_dir() -> PathBuf {
+pub fn bin_dir() -> PathBuf {
     app_data_dir().join("bin")
 }
 
-pub fn updated_ytdlp_path() -> PathBuf {
-    update_bin_dir().join(YTDLP_NAME)
+/// Records which yt-dlp version sits in `bin_dir`, so a newer self-updated copy survives the
+/// re-extraction that follows an app update.
+pub fn ytdlp_version_path() -> PathBuf {
+    bin_dir().join("yt-dlp.version")
 }
 
-pub fn extracted_ffmpeg_path() -> PathBuf {
-    update_bin_dir().join(FFMPEG_NAME)
+pub fn is_newer_ytdlp(candidate: &str, than: &str) -> bool {
+    let parse = |v: &str| -> Option<Vec<u64>> { v.trim().split('.').map(|p| p.parse().ok()).collect() };
+    matches!((parse(candidate), parse(than)), (Some(a), Some(b)) if a > b)
 }
 
-pub fn stamp_path() -> PathBuf {
-    update_bin_dir().join("exe.stamp")
+#[cfg(not(debug_assertions))]
+fn stamp_path() -> PathBuf {
+    bin_dir().join("exe.stamp")
 }
 
-pub fn exe_stamp() -> Option<String> {
-    if cfg!(debug_assertions) {
-        return None;
-    }
-    let exe = std::env::current_exe().ok()?;
-    let meta = fs::metadata(exe).ok()?;
-    let mtime = meta
-        .modified()
-        .ok()?
-        .duration_since(UNIX_EPOCH)
-        .ok()?
-        .as_nanos();
+#[cfg(not(debug_assertions))]
+fn exe_stamp() -> Option<String> {
+    let meta = fs::metadata(std::env::current_exe().ok()?).ok()?;
+    let mtime = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
     Some(format!("{}-{}", meta.len(), mtime))
 }
 
-#[cfg(all(not(debug_assertions), windows))]
-fn write_binary_atomic(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub fn write_binary(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    replace_binary(dest, |tmp| fs::write(tmp, bytes))
+}
+
+fn replace_binary(
+    dest: &Path,
+    write_tmp: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
     let tmp = dest.with_extension("exe.tmp");
-    fs::write(&tmp, bytes)?;
+    if let Err(e) = write_tmp(&tmp) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
     if fs::rename(&tmp, dest).is_err() {
         let _ = fs::remove_file(dest);
         if let Err(e) = fs::rename(&tmp, dest) {
@@ -66,91 +57,92 @@ fn write_binary_atomic(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// On release (portable exe) launches, unpacks embedded ffmpeg.exe and yt-dlp.exe once into
-/// `%APPDATA%\VideoIndiren\bin\` (and refreshes them automatically if a newer portable exe is shipped).
+#[cfg(not(debug_assertions))]
+fn write_compressed_binary(dest: &Path, compressed: &[u8]) -> std::io::Result<()> {
+    replace_binary(dest, |tmp| {
+        let mut decoder = zstd::Decoder::new(compressed)?;
+        decoder.window_log_max(31)?;
+        let mut out = std::io::BufWriter::new(fs::File::create(tmp)?);
+        std::io::copy(&mut decoder, &mut out)?;
+        std::io::Write::flush(&mut out)
+    })
+}
+
+// Release builds embed the tools zstd-compressed (see build.rs) so VideoIndiren.exe is a single
+// portable file; they are unpacked on first launch and again whenever the exe itself changes.
+// yt-dlp needs ffprobe next to ffmpeg for SponsorBlock and other post-processing.
+#[cfg(not(debug_assertions))]
 pub fn ensure_binaries_ready() {
-    #[cfg(all(not(debug_assertions), windows))]
-    {
-        let dir = update_bin_dir();
-        if let Err(e) = fs::create_dir_all(&dir) {
-            log_error(&format!("Failed to create bin dir: {e}"));
-            return;
-        }
+    use crate::config::{log_error, log_info};
 
-        let current_stamp = exe_stamp();
-        let saved_stamp = fs::read_to_string(stamp_path())
-            .ok()
-            .map(|s| s.trim().to_string());
-        let stamp_changed = current_stamp.is_some() && saved_stamp != current_stamp;
+    let dir = bin_dir();
+    if let Err(e) = fs::create_dir_all(&dir) {
+        log_error(&format!("Failed to create bin dir: {e}"));
+        return;
+    }
 
-        let ytdlp_dest = updated_ytdlp_path();
-        if stamp_changed || !ytdlp_dest.is_file() {
-            log_info("Extracting embedded yt-dlp.exe to AppData...");
-            if let Err(e) = write_binary_atomic(&ytdlp_dest, EMBEDDED_YTDLP) {
-                log_error(&format!("Failed to extract yt-dlp.exe: {e}"));
+    let current_stamp = exe_stamp();
+    let saved_stamp = fs::read_to_string(stamp_path())
+        .ok()
+        .map(|s| s.trim().to_string());
+    let stamp_changed = current_stamp.is_some() && saved_stamp != current_stamp;
+
+    let embedded: [(&str, &[u8]); 3] = [
+        (YTDLP_NAME, include_bytes!(concat!(env!("OUT_DIR"), "/yt-dlp.exe.zst"))),
+        (FFMPEG_NAME, include_bytes!(concat!(env!("OUT_DIR"), "/ffmpeg.exe.zst"))),
+        (FFPROBE_NAME, include_bytes!(concat!(env!("OUT_DIR"), "/ffprobe.exe.zst"))),
+    ];
+    for (name, bytes) in embedded {
+        let dest = dir.join(name);
+        let keep_updated_ytdlp = name == YTDLP_NAME
+            && dest.is_file()
+            && fs::read_to_string(ytdlp_version_path())
+                .is_ok_and(|installed| is_newer_ytdlp(&installed, env!("BUNDLED_YTDLP_VERSION")));
+        if (stamp_changed || !dest.is_file()) && !keep_updated_ytdlp {
+            log_info(&format!("Extracting embedded {name} to AppData..."));
+            if let Err(e) = write_compressed_binary(&dest, bytes) {
+                log_error(&format!("Failed to extract {name}: {e}"));
+            } else if name == YTDLP_NAME {
+                let _ = fs::write(ytdlp_version_path(), env!("BUNDLED_YTDLP_VERSION"));
             }
         }
+    }
 
-        let ffmpeg_dest = extracted_ffmpeg_path();
-        if stamp_changed || !ffmpeg_dest.is_file() {
-            log_info("Extracting embedded ffmpeg.exe to AppData...");
-            if let Err(e) = write_binary_atomic(&ffmpeg_dest, EMBEDDED_FFMPEG) {
-                log_error(&format!("Failed to extract ffmpeg.exe: {e}"));
-            }
-        }
-
-        if let Some(stamp) = current_stamp {
-            if stamp_changed || !stamp_path().is_file() {
-                let _ = fs::write(stamp_path(), stamp);
-            }
+    if let Some(stamp) = current_stamp {
+        if stamp_changed || !stamp_path().is_file() {
+            let _ = fs::write(stamp_path(), stamp);
         }
     }
 }
 
-pub fn resolve_ytdlp(resource_dir: Option<&Path>) -> PathBuf {
-    let appdata_bin = updated_ytdlp_path();
-    if appdata_bin.is_file() {
-        return appdata_bin;
-    }
-
-    if let Some(res) = resource_dir {
-        let bundled = res.join("binaries").join(YTDLP_NAME);
-        if bundled.is_file() {
-            return bundled;
-        }
-    }
-
-    let dev_local = PathBuf::from("binaries").join(YTDLP_NAME);
-    if dev_local.is_file() {
-        return dev_local;
-    }
-
-    PathBuf::from(YTDLP_NAME)
+fn resolve(name: &str) -> Option<PathBuf> {
+    [bin_dir().join(name), Path::new("binaries").join(name)]
+        .into_iter()
+        .find(|path| path.is_file())
 }
 
-pub fn resolve_ffmpeg(resource_dir: Option<&Path>) -> Option<PathBuf> {
-    let appdata_bin = extracted_ffmpeg_path();
-    if appdata_bin.is_file() {
-        return Some(appdata_bin);
-    }
+pub fn resolve_ytdlp() -> PathBuf {
+    resolve(YTDLP_NAME).unwrap_or_else(|| PathBuf::from(YTDLP_NAME))
+}
 
-    if let Some(res) = resource_dir {
-        let bundled = res.join("binaries").join(FFMPEG_NAME);
-        if bundled.is_file() {
-            return Some(bundled);
-        }
+pub fn resolve_ffmpeg() -> Option<PathBuf> {
+    let found = resolve(FFMPEG_NAME);
+    if found.is_none() {
+        log_warn("Bundled ffmpeg not found; falling back to system PATH.");
     }
+    found
+}
 
-    let dev_local = PathBuf::from("binaries").join(FFMPEG_NAME);
-    if dev_local.is_file() {
-        return Some(dev_local);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ytdlp_version_ordering() {
+        assert!(is_newer_ytdlp("2026.11.02", "2026.10.26"));
+        assert!(is_newer_ytdlp("2026.10.26.1", "2026.10.26"));
+        assert!(!is_newer_ytdlp("2026.10.26", "2026.10.26"));
+        assert!(!is_newer_ytdlp("2026.09.01", "2026.10.26"));
+        assert!(!is_newer_ytdlp("garbage", "2026.10.26"));
     }
-
-    let parent_ffmpeg = PathBuf::from("..").join("ffmpeg").join("bin").join(FFMPEG_NAME);
-    if parent_ffmpeg.is_file() {
-        return Some(parent_ffmpeg);
-    }
-
-    log_warn("Bundled ffmpeg not found; falling back to system PATH.");
-    None
 }

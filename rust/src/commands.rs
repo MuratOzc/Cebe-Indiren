@@ -1,50 +1,117 @@
 use crate::app_updater::install_app_update;
-use crate::config::{load_config, log_error, save_config};
-use crate::downloader::{get_video_info as fetch_video_info, run_download, DownloadRequest, DownloadResult, VideoInfoResult};
-use crate::state::{AppState, AppUpdateState, UpdateState};
-use crate::updater::install_update;
+use crate::config::{load_config, log_error, update_config};
+use crate::downloader::{
+    clear_taskbar_progress, extract_youtube_id, fetch_video_info, kill_info_lookup, run_download,
+    DownloadRequest, DownloadResult, VideoInfo,
+};
+use crate::history::{self, HistoryItem};
+use crate::platform;
+use crate::sponsorblock;
+use crate::state::{lock, AppState, AppUpdateState, UpdateState};
+use crate::updater::{install_update, start_update_check};
 use serde::Serialize;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use crate::theme::{self, ThemeMode};
+use tauri::{AppHandle, Manager, State, UserAttentionType, WebviewWindow};
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
+type AppStateRef<'a> = State<'a, Arc<AppState>>;
+
+const MAX_CLIPBOARD_LINKS: usize = 50;
+
+struct Claim<'a>(&'a AtomicBool);
+
+impl<'a> Claim<'a> {
+    fn acquire(flag: &'a AtomicBool) -> Option<Self> {
+        flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| Self(flag))
+    }
+}
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct ConfigResponse {
     pub default_dir: String,
     pub quality: String,
+    pub audio_only: bool,
+    pub theme: ThemeMode,
+    pub sponsorblock: bool,
 }
 
 #[tauri::command]
-pub fn get_config(state: State<'_, Arc<AppState>>) -> ConfigResponse {
+pub fn get_config(state: AppStateRef<'_>) -> ConfigResponse {
     let cfg = load_config();
-    let default_dir = state
-        .download_dir
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_default();
     ConfigResponse {
-        default_dir,
+        default_dir: lock(&state.download_dir).clone(),
         quality: cfg.quality,
+        audio_only: cfg.audio_only,
+        theme: cfg.theme,
+        sponsorblock: cfg.sponsorblock,
     }
 }
 
 #[tauri::command]
 pub fn set_quality(quality: String) {
-    save_config(None, Some(quality));
+    update_config(|cfg| cfg.quality = quality);
 }
 
 #[tauri::command]
-pub async fn select_folder(state: State<'_, Arc<AppState>>) -> Result<Option<String>, String> {
-    let initial = state
-        .download_dir
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_default();
+pub fn set_audio_only(audio_only: bool) {
+    update_config(|cfg| cfg.audio_only = audio_only);
+}
+
+#[tauri::command]
+pub fn set_sponsorblock(sponsorblock: bool) {
+    update_config(|cfg| cfg.sponsorblock = sponsorblock);
+}
+
+#[tauri::command]
+pub fn clipboard_links() -> Vec<String> {
+    platform::clipboard_text()
+        .map(|text| links_in(&text))
+        .unwrap_or_default()
+}
+
+// The page only ever learns about clipboard text that is nothing but links.
+fn links_in(text: &str) -> Vec<String> {
+    let tokens: Vec<&str> = text.split_whitespace().collect();
+    let is_link = |token: &&str| {
+        let rest = token
+            .strip_prefix("https://")
+            .or_else(|| token.strip_prefix("http://"));
+        rest.is_some_and(|rest| rest.contains('.') && !rest.starts_with('.'))
+            && !token.chars().any(char::is_control)
+    };
+    if tokens.is_empty() || tokens.len() > MAX_CLIPBOARD_LINKS || !tokens.iter().all(is_link) {
+        return Vec::new();
+    }
+    let mut links: Vec<String> = Vec::new();
+    for token in tokens {
+        if !links.iter().any(|known| known == token) {
+            links.push(token.to_string());
+        }
+    }
+    links
+}
+
+#[tauri::command]
+pub fn set_theme(window: WebviewWindow, theme: ThemeMode) {
+    update_config(|cfg| cfg.theme = theme);
+    theme::apply_to_window(&window, theme);
+}
+
+#[tauri::command]
+pub async fn select_folder(state: AppStateRef<'_>) -> Result<Option<String>, String> {
+    let initial = lock(&state.download_dir).clone();
 
     let picked = tokio::task::spawn_blocking(move || {
         let mut dialog = rfd::FileDialog::new();
@@ -58,175 +125,159 @@ pub async fn select_folder(state: State<'_, Arc<AppState>>) -> Result<Option<Str
     .await
     .map_err(|e| e.to_string())?;
 
-    if let Some(ref folder) = picked {
-        if let Ok(mut guard) = state.download_dir.lock() {
-            *guard = folder.clone();
-        }
-        save_config(Some(folder.clone()), None);
+    if let Some(folder) = &picked {
+        *lock(&state.download_dir) = folder.clone();
+        update_config(|cfg| cfg.download_dir = Some(folder.clone()));
     }
 
     Ok(picked)
 }
 
-fn normalize_for_compare(path: &Path) -> PathBuf {
-    let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let s = resolved.to_string_lossy();
-    let stripped = s.strip_prefix(r"\\?\").unwrap_or(&s);
-    #[cfg(windows)]
-    {
-        PathBuf::from(stripped.to_lowercase())
+// Paths go to the shell's default handler: only ones this app saved itself are accepted.
+fn saved_download(state: &AppState, file_path: &str) -> Result<PathBuf, String> {
+    let saved = lock(&state.history)
+        .iter()
+        .any(|entry| history::same_file(&entry.path, file_path));
+    if !saved {
+        return Err("Access denied".to_string());
     }
-    #[cfg(not(windows))]
-    {
-        PathBuf::from(stripped)
+    let path = PathBuf::from(file_path);
+    if !path.exists() {
+        return Err("File not found".to_string());
     }
-}
-
-fn is_allowed_open_path(state: &AppState, path: &Path) -> bool {
-    let target = normalize_for_compare(path);
-
-    if let Ok(last) = state.last_downloaded_path.lock() {
-        if !last.is_empty() && normalize_for_compare(Path::new(&*last)) == target {
-            return true;
-        }
-    }
-
-    if let Ok(dir) = state.download_dir.lock() {
-        if !dir.is_empty() {
-            let base = normalize_for_compare(Path::new(&*dir));
-            if target.starts_with(&base) {
-                return true;
-            }
-        }
-    }
-
-    false
+    Ok(path)
 }
 
 #[tauri::command]
-pub fn open_folder(state: State<'_, Arc<AppState>>, file_path: String) -> Result<(), String> {
-    let path = PathBuf::from(&file_path);
-    if !is_allowed_open_path(&state, &path) {
-        return Err("Access denied".to_string());
+pub fn open_folder(state: AppStateRef<'_>, file_path: String) -> Result<(), String> {
+    let path = saved_download(&state, &file_path)?;
+    let mut explorer = Command::new("explorer");
+    if path.is_file() {
+        let clean = file_path.replace('/', "\\");
+        explorer.raw_arg(format!("/select,\"{clean}\""));
+    } else {
+        explorer.arg(&path);
     }
+    explorer.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
 
-    if path.exists() {
-        #[cfg(windows)]
-        {
-            if path.is_file() {
-                let clean = path.to_string_lossy().replace('/', "\\");
-                Command::new("explorer")
-                    .raw_arg(format!("/select,\"{clean}\""))
-                    .spawn()
-                    .map_err(|e| e.to_string())?;
-            } else {
-                Command::new("explorer")
-                    .arg(&path)
-                    .spawn()
-                    .map_err(|e| e.to_string())?;
-            }
-            return Ok(());
-        }
-        #[cfg(not(windows))]
-        {
-            let target_dir = if path.is_dir() {
-                path.as_path()
-            } else {
-                path.parent().unwrap_or(path.as_path())
-            };
-            let _ = Command::new("xdg-open").arg(target_dir).spawn();
-            return Ok(());
-        }
+#[tauri::command]
+pub fn open_file(state: AppStateRef<'_>, file_path: String) -> Result<(), String> {
+    let path = saved_download(&state, &file_path)?;
+    Command::new("explorer")
+        .arg(&path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_history(state: AppStateRef<'_>) -> Vec<HistoryItem> {
+    history::items(&lock(&state.history))
+}
+
+#[tauri::command]
+pub fn remove_history_entry(state: AppStateRef<'_>, file_path: String) -> Vec<HistoryItem> {
+    let mut entries = lock(&state.history);
+    if history::remove(&mut entries, &file_path) {
+        history::save_history(&entries);
     }
+    history::items(&entries)
+}
 
-    if let Some(parent) = path.parent() {
-        if parent.exists() && is_allowed_open_path(&state, parent) {
-            #[cfg(windows)]
-            {
-                Command::new("explorer")
-                    .arg(parent)
-                    .spawn()
-                    .map_err(|e| e.to_string())?;
-            }
-            return Ok(());
-        }
-    }
-
-    Err("File not found".to_string())
+#[tauri::command]
+pub fn clear_history(state: AppStateRef<'_>) {
+    let mut entries = lock(&state.history);
+    entries.clear();
+    history::save_history(&entries);
 }
 
 #[tauri::command]
 pub async fn get_video_info(
-    state: State<'_, Arc<AppState>>,
+    state: AppStateRef<'_>,
     url: String,
-) -> Result<VideoInfoResult, String> {
-    Ok(fetch_video_info(&state, &url).await)
+    playlist: bool,
+) -> Result<VideoInfo, String> {
+    fetch_video_info(&state, &url, playlist).await
+}
+
+#[tauri::command]
+pub async fn get_sponsor_segments(url: String) -> Option<sponsorblock::Overview> {
+    let video_id = extract_youtube_id(&url)?;
+    sponsorblock::fetch_overview(&video_id).await
 }
 
 #[tauri::command]
 pub async fn start_download(
     app: AppHandle,
-    state: State<'_, Arc<AppState>>,
+    state: AppStateRef<'_>,
     request: DownloadRequest,
 ) -> Result<DownloadResult, String> {
-    if state
-        .download_active
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    let Some(claim) = Claim::acquire(&state.download_active) else {
         return Err("Zaten aktif bir indirme var.".to_string());
+    };
+    if state.ytdlp_update_active.load(Ordering::SeqCst) {
+        return Err("yt-dlp güncelleniyor. Birkaç saniye sonra tekrar deneyin.".to_string());
+    }
+    if state.app_update_active.load(Ordering::SeqCst) {
+        return Err("Uygulama güncelleniyor. Lütfen bekleyin.".to_string());
     }
 
-    let mut download_dir = state
-        .download_dir
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_default();
+    let download_dir = lock(&state.download_dir).clone();
+    let res = run_download(&app, &state, request, download_dir).await;
+    drop(claim);
 
-    if let Some(ref req_dir) = request.download_dir {
-        if !req_dir.is_empty() && Path::new(req_dir).exists() {
-            download_dir = req_dir.clone();
+    if res.is_err() {
+        retry_failed_update_check(&state);
+    }
+
+    clear_taskbar_progress(&app);
+    if let Some(window) = app.get_webview_window("main") {
+        if !window.is_focused().unwrap_or(true) {
+            let _ = window.request_user_attention(Some(UserAttentionType::Informational));
         }
     }
-
-    let res = run_download(&app, &state, request, download_dir).await;
-    state.download_active.store(false, Ordering::SeqCst);
     res
 }
 
+fn retry_failed_update_check(state: &Arc<AppState>) {
+    let mut update = lock(&state.update_state);
+    if update.status == "failed" {
+        update.status = "checking".to_string();
+        start_update_check(Arc::clone(state));
+    }
+}
+
 #[tauri::command]
-pub fn cancel_download(state: State<'_, Arc<AppState>>) {
+pub async fn cancel_download(state: AppStateRef<'_>) -> Result<(), String> {
     state.cancel_requested.store(true, Ordering::SeqCst);
-    state.kill_active_child();
+    let state = Arc::clone(&state);
+    tokio::task::spawn_blocking(move || state.kill_active_child())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_update_status(state: State<'_, Arc<AppState>>) -> UpdateState {
-    state
-        .update_state
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or(UpdateState {
-            status: "failed".to_string(),
-            current: String::new(),
-            latest: String::new(),
-        })
+pub fn get_update_status(state: AppStateRef<'_>) -> UpdateState {
+    lock(&state.update_state).clone()
 }
 
 #[tauri::command]
-pub async fn update_ytdlp(state: State<'_, Arc<AppState>>) -> Result<UpdateState, String> {
+pub async fn update_ytdlp(state: AppStateRef<'_>) -> Result<UpdateState, String> {
+    let Some(_claim) = Claim::acquire(&state.ytdlp_update_active) else {
+        return Err("Güncelleme zaten sürüyor.".to_string());
+    };
     if state.download_active.load(Ordering::SeqCst) {
         return Err("İndirme sürerken güncelleme yapılamaz.".to_string());
     }
 
-    let (status, latest) = {
-        let guard = state.update_state.lock().map_err(|e| e.to_string())?;
-        (guard.status.clone(), guard.latest.clone())
-    };
-
+    let UpdateState { status, latest, .. } = lock(&state.update_state).clone();
     if status != "available" || latest.is_empty() {
         return Err("Güncelleme yok.".to_string());
     }
+
+    // Windows will not replace yt-dlp.exe while a lookup still has it running.
+    kill_info_lookup(&state).await;
 
     if let Err(e) = install_update(&latest).await {
         log_error(&format!("yt-dlp update failed: {e}"));
@@ -238,69 +289,53 @@ pub async fn update_ytdlp(state: State<'_, Arc<AppState>>) -> Result<UpdateState
         current: latest.clone(),
         latest,
     };
-
-    if let Ok(mut guard) = state.update_state.lock() {
-        *guard = new_state.clone();
-    }
-
+    *lock(&state.update_state) = new_state.clone();
     Ok(new_state)
 }
 
 #[tauri::command]
-pub fn get_app_update_status(state: State<'_, Arc<AppState>>) -> AppUpdateState {
-    state
-        .app_update_state
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or(AppUpdateState {
-            status: "failed".to_string(),
-            current: String::new(),
-            latest: String::new(),
-            download_url: String::new(),
-            sha256_url: None,
-        })
+pub fn get_app_update_status(state: AppStateRef<'_>) -> AppUpdateState {
+    lock(&state.app_update_state).clone()
 }
 
 #[tauri::command]
-pub async fn update_app(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<(), String> {
+pub async fn update_app(app: AppHandle, state: AppStateRef<'_>) -> Result<(), String> {
+    let Some(_claim) = Claim::acquire(&state.app_update_active) else {
+        return Err("Güncelleme zaten sürüyor.".to_string());
+    };
     if state.download_active.load(Ordering::SeqCst) {
         return Err("İndirme sürerken güncelleme yapılamaz.".to_string());
     }
 
-    if state
-        .app_update_active
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return Err("Güncelleme zaten sürüyor.".to_string());
-    }
-
-    let (status, download_url, sha256_url) = {
-        let guard = match state.app_update_state.lock() {
-            Ok(g) => g,
-            Err(e) => {
-                state.app_update_active.store(false, Ordering::SeqCst);
-                return Err(e.to_string());
-            }
-        };
-        (
-            guard.status.clone(),
-            guard.download_url.clone(),
-            guard.sha256_url.clone(),
-        )
-    };
-
-    if status != "available" || download_url.is_empty() {
-        state.app_update_active.store(false, Ordering::SeqCst);
+    let update = lock(&state.app_update_state).clone();
+    if update.status != "available" || update.download_url.is_empty() {
         return Err("Güncelleme yok.".to_string());
     }
 
-    let res = install_app_update(&app, &download_url, sha256_url.as_deref()).await;
-    state.app_update_active.store(false, Ordering::SeqCst);
-
-    if let Err(ref e) = res {
+    let res = install_app_update(&app, &update.download_url, update.sha256.as_deref()).await;
+    if let Err(e) = &res {
         log_error(&format!("App update failed: {e}"));
     }
-
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clipboard_text_is_offered_only_when_it_is_all_links() {
+        assert_eq!(links_in(" https://a.b/c \r\n"), ["https://a.b/c"]);
+        assert_eq!(
+            links_in("https://a.b/1\nhttp://c.d/2 https://a.b/1"),
+            ["https://a.b/1", "http://c.d/2"]
+        );
+        assert!(links_in("").is_empty());
+        assert!(links_in("parolam: hunter2").is_empty());
+        assert!(links_in("bak https://a.b/c").is_empty());
+        assert!(links_in("https://localhost").is_empty());
+        assert!(links_in("ftp://a.b/c").is_empty());
+        let many = vec!["https://a.b/c"; MAX_CLIPBOARD_LINKS + 1].join("\n");
+        assert!(links_in(&many).is_empty());
+    }
 }

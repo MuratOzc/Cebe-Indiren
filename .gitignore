@@ -1,36 +1,10 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
 *.log
-*.sqlite3
-
-# Virtual Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# PyInstaller
-build/
-dist/
-*.spec
-!VideoIndiren*.spec
-
-# Project Specific
-ffmpeg/
 downloads/
 
-# Rust / Tauri
 rust/target/
 rust/gen/
 rust/binaries/
-node_modules/
 
-# IDEs / OS / Agents
 .agents/
 .vscode/
 .idea/
