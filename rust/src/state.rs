@@ -28,6 +28,10 @@ pub struct AppUpdateState {
     pub download_url: String,
     #[serde(skip_serializing)]
     pub sha256: Option<String>,
+    #[serde(skip_serializing)]
+    pub release_notes: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_notes: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]

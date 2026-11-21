@@ -1,5 +1,6 @@
-use crate::config::{log_info, log_warn};
+use crate::config::{app_data_dir, log_info, log_warn, write_json};
 use crate::state::{lock, AppState, AppUpdateState};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Write};
@@ -46,14 +47,49 @@ fn parse_sha256_digest(raw: &str) -> Option<String> {
     (hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit())).then(|| hex.to_lowercase())
 }
 
-/// Removes the leftover `.old` executable from a previous self-update.
-pub fn cleanup_old_exe() {
-    let Ok(exe) = std::env::current_exe() else {
+#[derive(Debug, Serialize, Deserialize)]
+struct PendingNotes {
+    version: String,
+    notes: String,
+}
+
+fn pending_notes_file() -> PathBuf {
+    app_data_dir().join("pending_notes.json")
+}
+
+fn take_pending_notes() -> Option<String> {
+    let path = pending_notes_file();
+    let content = fs::read_to_string(&path).ok()?;
+    let _ = fs::remove_file(&path);
+    let pending: PendingNotes = serde_json::from_str(&content).ok()?;
+    let current = format!("v{APP_VERSION}");
+    let notes = pending.notes.trim().to_string();
+    (parse_semver(&pending.version) == parse_semver(&current) && !notes.is_empty()).then_some(notes)
+}
+
+fn save_pending_notes(version: &str, notes: &str) {
+    let trimmed = notes.trim();
+    if trimmed.is_empty() {
         return;
+    }
+    write_json(
+        &pending_notes_file(),
+        &PendingNotes {
+            version: version.to_string(),
+            notes: trimmed.to_string(),
+        },
+    );
+}
+
+/// Removes the leftover `.old` executable from a previous self-update.
+/// Returns `true` when an `.old` binary was present, indicating this launch followed an update.
+pub fn cleanup_old_exe() -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
     };
     let old_exe = append_ext(&exe, ".old");
     if !old_exe.exists() {
-        return;
+        return false;
     }
 
     tauri::async_runtime::spawn(async move {
@@ -65,9 +101,10 @@ pub fn cleanup_old_exe() {
         }
         log_warn(&format!("Could not remove old binary: {}", old_exe.display()));
     });
+    true
 }
 
-async fn fetch_latest_release() -> Result<AppUpdateState, String> {
+async fn fetch_latest_release(just_updated: bool) -> Result<AppUpdateState, String> {
     let release: serde_json::Value = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent(USER_AGENT)
@@ -87,6 +124,11 @@ async fn fetch_latest_release() -> Result<AppUpdateState, String> {
     let name = release["name"].as_str().unwrap_or_default().trim();
     let (label, latest) = release_version(tag, name)
         .ok_or_else(|| format!("Unexpected release version (tag={tag:?}, name={name:?})"))?;
+    let release_notes = release["body"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
 
     let asset = release["assets"].as_array().and_then(|assets| {
         assets.iter().find(|asset| {
@@ -103,22 +145,31 @@ async fn fetch_latest_release() -> Result<AppUpdateState, String> {
         .and_then(|asset| asset["digest"].as_str())
         .and_then(parse_sha256_digest);
 
-    let newer = parse_semver(APP_VERSION).is_some_and(|current| latest > current)
-        && !download_url.is_empty();
+    let current_ver = parse_semver(APP_VERSION);
+    let newer = current_ver.is_some_and(|current| latest > current) && !download_url.is_empty();
     if newer && sha256.is_none() {
         log_warn("Newer app release has no SHA-256 digest on GitHub; not offering it.");
     }
     let newer = newer && sha256.is_some();
+    let patch_notes =
+        (just_updated && current_ver == Some(latest) && !release_notes.is_empty())
+            .then(|| release_notes.clone());
     Ok(AppUpdateState {
         status: if newer { "available" } else { "up_to_date" }.to_string(),
         current: format!("v{APP_VERSION}"),
         latest: format!("v{}", label.trim_start_matches(['v', 'V'])),
         download_url,
         sha256,
+        release_notes,
+        patch_notes,
     })
 }
 
-pub fn start_app_update_check(state: Arc<AppState>) {
+pub fn start_app_update_check(state: Arc<AppState>, just_updated: bool) {
+    if let Some(notes) = take_pending_notes() {
+        lock(&state.app_update_state).patch_notes = Some(notes);
+    }
+
     tauri::async_runtime::spawn(async move {
         let mut result = AppUpdateState {
             status: "failed".to_string(),
@@ -126,7 +177,7 @@ pub fn start_app_update_check(state: Arc<AppState>) {
             ..AppUpdateState::default()
         };
         for attempt in 1..=3u64 {
-            match fetch_latest_release().await {
+            match fetch_latest_release(just_updated).await {
                 Ok(found) => {
                     log_info(&format!(
                         "App v{APP_VERSION} active, latest {} ({}).",
@@ -141,7 +192,11 @@ pub fn start_app_update_check(state: Arc<AppState>) {
                 tokio::time::sleep(Duration::from_secs(attempt)).await;
             }
         }
-        *lock(&state.app_update_state) = result;
+        let mut guard = lock(&state.app_update_state);
+        if result.patch_notes.is_none() {
+            result.patch_notes = guard.patch_notes.clone();
+        }
+        *guard = result;
     });
 }
 
@@ -208,8 +263,10 @@ async fn download_exe(
 
 pub async fn install_app_update(
     app: &AppHandle,
+    latest: &str,
     download_url: &str,
     expected_sha256: Option<&str>,
+    release_notes: &str,
 ) -> Result<(), String> {
     if cfg!(debug_assertions) {
         return Err("Geliştirme modunda uygulama güncellemesi devre dışı.".to_string());
@@ -239,6 +296,8 @@ pub async fn install_app_update(
         let _ = fs::remove_file(&new_exe);
         return Err(format!("Yeni sürüm yerleştirilemedi: {e}"));
     }
+
+    save_pending_notes(latest, release_notes);
 
     log_info(&format!(
         "App updated successfully at {}. Relaunching...",

@@ -100,11 +100,10 @@
                             <div class="field">
                                 <div class="field-head">
                                     <label for="urlInput">Bağlantı</label>
-                                    <span id="urlHint" class="field-hint">Her satıra bir bağlantı</span>
                                 </div>
                                 <div class="url-box">
                                     <textarea id="urlInput" rows="1" wrap="off" placeholder="https://"
-                                        autocomplete="off" spellcheck="false" aria-describedby="urlHint"></textarea>
+                                        autocomplete="off" spellcheck="false"></textarea>
                                     <button id="clearUrlBtn" class="icon-btn hidden" type="button" title="Temizle"
                                         aria-label="Bağlantıları temizle">
                                         <svg class="ico"><use href="#i-close" /></svg>
@@ -296,6 +295,12 @@
         </dl>
         <p class="sheet-note">Bağlantılar pencereye sürüklenip bırakılabilir.</p>
         <form method="dialog"><button class="btn" type="submit">Kapat</button></form>
+    </dialog>
+
+    <dialog id="patchNotesDialog" class="sheet" aria-labelledby="patchNotesTitle">
+        <h2 id="patchNotesTitle">Yenilikler</h2>
+        <div id="patchNotesBody" class="patch-notes"></div>
+        <form method="dialog"><button class="btn" type="submit">Tamam</button></form>
     </dialog>
 
     <script src="script.js"></script>

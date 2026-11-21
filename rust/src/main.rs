@@ -51,7 +51,7 @@ Yine de çıkmak istiyor musunuz?",
 fn main() {
     let app = tauri::Builder::default()
         .setup(|app| {
-            cleanup_old_exe();
+            let just_updated = cleanup_old_exe();
             #[cfg(not(debug_assertions))]
             binaries::ensure_binaries_ready();
 
@@ -64,7 +64,7 @@ fn main() {
 
             let app_state = Arc::new(AppState::new(download_dir, history::load_history()));
             start_update_check(Arc::clone(&app_state));
-            start_app_update_check(Arc::clone(&app_state));
+            start_app_update_check(Arc::clone(&app_state), just_updated);
             app.manage(app_state);
 
             let window_config = app

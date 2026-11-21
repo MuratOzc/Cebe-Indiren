@@ -89,6 +89,9 @@ const el = {
     themeToggle: $('themeToggle'),
     shortcutsBtn: $('shortcutsBtn'),
     shortcutsDialog: $('shortcutsDialog'),
+    patchNotesDialog: $('patchNotesDialog'),
+    patchNotesTitle: $('patchNotesTitle'),
+    patchNotesBody: $('patchNotesBody'),
     dropOverlay: $('dropOverlay'),
     ambient: $('ambient'),
 };
@@ -321,17 +324,7 @@ function shownThumb(img) {
     return img.classList.contains('hidden') ? "" : (img.getAttribute('src') || "");
 }
 
-function refreshAmbient() {
-    let url = "";
-    if (isDownloading) {
-        url = shownThumb(el.progressThumb);
-    } else if (el.previewCard.classList.contains('ready')) {
-        url = shownThumb(el.previewThumb);
-    } else if (!el.resultCard.classList.contains('hidden')) {
-        url = shownThumb(el.resultThumb);
-    }
-    setAmbient(url);
-}
+function refreshAmbient() {}
 
 function showPreview(state, info = {}) {
     if (state === 'hidden') {
@@ -1198,7 +1191,7 @@ function addLinks(links) {
 }
 
 function modalOpen() {
-    return el.shortcutsDialog.open;
+    return el.shortcutsDialog.open || el.patchNotesDialog.open;
 }
 
 function pasteIntoUrlField(e) {
@@ -1359,11 +1352,83 @@ async function updateYtdlp() {
     }
 }
 
+let patchNotesShown = false;
+
+function appendInlineMarkdown(parent, text) {
+    const tokenRe = /\*\*(.+?)\*\*|`([^`]+)`/g;
+    let last = 0;
+    for (const match of text.matchAll(tokenRe)) {
+        if (match.index > last) {
+            parent.appendChild(document.createTextNode(text.slice(last, match.index)));
+        }
+        if (match[1] !== undefined) {
+            const strong = document.createElement('strong');
+            strong.textContent = match[1];
+            parent.appendChild(strong);
+        } else {
+            const code = document.createElement('code');
+            code.textContent = match[2];
+            parent.appendChild(code);
+        }
+        last = match.index + match[0].length;
+    }
+    if (last < text.length) {
+        parent.appendChild(document.createTextNode(text.slice(last)));
+    }
+}
+
+function showPatchNotes(version, markdown) {
+    if (patchNotesShown || !markdown || !markdown.trim()) return;
+    patchNotesShown = true;
+
+    el.patchNotesTitle.textContent = version ? `${version} — Yenilikler` : "Yenilikler";
+    el.patchNotesBody.replaceChildren();
+
+    let list = null;
+    for (const rawLine of markdown.replace(/\r\n/g, '\n').split('\n')) {
+        const line = rawLine.trim();
+        if (!line) {
+            list = null;
+            continue;
+        }
+        const heading = line.match(/^#{1,6}\s+(.*)$/);
+        if (heading) {
+            list = null;
+            const h3 = document.createElement('h3');
+            appendInlineMarkdown(h3, heading[1]);
+            el.patchNotesBody.appendChild(h3);
+            continue;
+        }
+        const bullet = line.match(/^[-*•]\s+(.*)$/);
+        if (bullet) {
+            if (!list) {
+                list = document.createElement('ul');
+                el.patchNotesBody.appendChild(list);
+            }
+            const li = document.createElement('li');
+            appendInlineMarkdown(li, bullet[1]);
+            list.appendChild(li);
+            continue;
+        }
+        list = null;
+        const p = document.createElement('p');
+        appendInlineMarkdown(p, line);
+        el.patchNotesBody.appendChild(p);
+    }
+
+    if (!modalOpen()) {
+        el.patchNotesDialog.showModal();
+    }
+}
+
 async function pollAppUpdateStatus() {
     try {
         const data = await invoke('get_app_update_status');
         if (data.current) {
             el.appVersion.textContent = data.current;
+        }
+        if (data.patch_notes) {
+            showPatchNotes(data.current, data.patch_notes);
         }
         if (data.status === 'checking') {
             setTimeout(pollAppUpdateStatus, 1000);
@@ -1482,7 +1547,8 @@ function setupShortcuts() {
         if (modalOpen()) {
             if (e.key === 'Escape') {
                 e.preventDefault();
-                el.shortcutsDialog.close();
+                if (el.shortcutsDialog.open) el.shortcutsDialog.close();
+                if (el.patchNotesDialog.open) el.patchNotesDialog.close();
             }
             return;
         }
@@ -1624,6 +1690,9 @@ function init() {
     });
     el.shortcutsDialog.addEventListener('click', (e) => {
         if (e.target === el.shortcutsDialog) el.shortcutsDialog.close();
+    });
+    el.patchNotesDialog.addEventListener('click', (e) => {
+        if (e.target === el.patchNotesDialog) el.patchNotesDialog.close();
     });
     refreshThemeToggle();
 

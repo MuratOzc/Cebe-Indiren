@@ -220,7 +220,7 @@ fn is_definitive_error(err_msg: &str) -> bool {
 
 fn should_try_next_browser(err_msg: &str) -> bool {
     let lower = err_msg.to_lowercase();
-    const TERMS: [&str; 11] = [
+    const TERMS: [&str; 14] = [
         "cookie",
         "browser",
         "profile",
@@ -232,6 +232,9 @@ fn should_try_next_browser(err_msg: &str) -> bool {
         "forbidden",
         "403",
         "dpapi",
+        "authentication",
+        "sign in",
+        "login",
     ];
     TERMS.iter().any(|t| lower.contains(t))
 }
@@ -540,12 +543,68 @@ fn info_args(url: &str, playlist: bool) -> Vec<&str> {
     ]
 }
 
+async fn run_info_lookup(
+    state: &AppState,
+    url: &str,
+    playlist: bool,
+    browser_cookies: Option<&str>,
+) -> Result<VideoInfo, (String, bool)> {
+    const FAILED: &str = "Video bilgisi alınamadı.";
+
+    let mut args: Vec<&str> = info_args(url, playlist);
+    if let Some(browser) = browser_cookies {
+        let insert_at = args.len().saturating_sub(2);
+        args.splice(insert_at..insert_at, ["--cookies-from-browser", browser]);
+    }
+
+    let child = ytdlp_command().args(args).spawn().map_err(|e| {
+        log_error(&format!("Failed to run yt-dlp for info: {e}"));
+        (FAILED.to_string(), false)
+    })?;
+    let pid = child.id();
+    *lock(&state.info_child_pid) = pid;
+
+    let waited = tokio::time::timeout(INFO_TIMEOUT, child.wait_with_output()).await;
+    {
+        let mut current = lock(&state.info_child_pid);
+        if pid.is_none() || *current != pid {
+            return Err((FAILED.to_string(), false));
+        }
+        *current = None;
+    }
+
+    let out = match waited {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => {
+            log_error(&format!("Failed to read yt-dlp info output: {e}"));
+            return Err((FAILED.to_string(), false));
+        }
+        Err(_) => {
+            // The packaged yt-dlp is a bootloader plus a worker process, so the whole tree must go.
+            if let Some(pid) = pid {
+                let _ = tokio::task::spawn_blocking(move || kill_process_tree(pid)).await;
+            }
+            log_warn("yt-dlp info lookup timed out.");
+            return Err(("Video bilgisi zaman aşımına uğradı.".to_string(), false));
+        }
+    };
+
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let raw = last_error_line(&stderr).unwrap_or_default().to_string();
+        let retryable = should_try_next_browser(&raw);
+        return Err((raw, retryable));
+    }
+
+    parse_info_output(&String::from_utf8_lossy(&out.stdout))
+        .ok_or_else(|| ("Video bilgisi ayrıştırılamadı.".to_string(), false))
+}
+
 pub async fn fetch_video_info(
     state: &AppState,
     url: &str,
     playlist: bool,
 ) -> Result<VideoInfo, String> {
-    const FAILED: &str = "Video bilgisi alınamadı.";
     let url = clean_url(url).ok_or("Lütfen geçerli bir bağlantı girin.")?;
 
     kill_info_lookup(state).await;
@@ -558,50 +617,23 @@ pub async fn fetch_video_info(
         }
     }
 
-    let child = ytdlp_command()
-        .args(info_args(url, playlist))
-        .spawn()
-        .map_err(|e| {
-            log_error(&format!("Failed to run yt-dlp for info: {e}"));
-            FAILED
-        })?;
-    let pid = child.id();
-    *lock(&state.info_child_pid) = pid;
-
-    let waited = tokio::time::timeout(INFO_TIMEOUT, child.wait_with_output()).await;
-    {
-        let mut current = lock(&state.info_child_pid);
-        if pid.is_none() || *current != pid {
-            return Err(FAILED.to_string());
-        }
-        *current = None;
-    }
-
-    let out = match waited {
-        Ok(Ok(out)) => out,
-        Ok(Err(e)) => {
-            log_error(&format!("Failed to read yt-dlp info output: {e}"));
-            return Err(FAILED.to_string());
-        }
-        Err(_) => {
-            // The packaged yt-dlp is a bootloader plus a worker process, so the whole tree must go.
-            if let Some(pid) = pid {
-                let _ = tokio::task::spawn_blocking(move || kill_process_tree(pid)).await;
-            }
-            log_warn("yt-dlp info lookup timed out.");
-            return Err("Video bilgisi zaman aşımına uğradı.".to_string());
-        }
+    let (first_err, retryable) = match run_info_lookup(state, url, playlist, None).await {
+        Ok(info) => return Ok(info),
+        Err(err) => err,
     };
 
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        let raw = last_error_line(&stderr).unwrap_or_default();
-        log_error(&format!("Failed to fetch video info: {raw}"));
-        return Err(friendly_error(raw));
+    if retryable {
+        for browser in browser_cookie_sources() {
+            match run_info_lookup(state, url, playlist, Some(&browser)).await {
+                Ok(info) => return Ok(info),
+                Err((_, true)) => continue,
+                Err((_, false)) => break,
+            }
+        }
     }
 
-    parse_info_output(&String::from_utf8_lossy(&out.stdout))
-        .ok_or_else(|| "Video bilgisi ayrıştırılamadı.".to_string())
+    log_error(&format!("Failed to fetch video info: {first_err}"));
+    Err(friendly_error(&first_err))
 }
 
 // The cap goes through the sort, where `res` is the smaller dimension: a `height<=` filter
@@ -731,7 +763,11 @@ fn build_ytdlp_args(
 
     if let Some((start, end)) = section_download(request) {
         let end = end.map_or_else(|| "inf".to_string(), |end| end.to_string());
-        add(&["--download-sections", &format!("*{start}-{end}")]);
+        add(&[
+            "--download-sections",
+            &format!("*{start}-{end}"),
+            "--force-keyframes-at-cuts",
+        ]);
     }
 
     if let Some(browser) = browser_cookies {
@@ -1195,6 +1231,42 @@ fn display_path(path: &Path) -> String {
     strip_verbatim_prefix(&resolved.to_string_lossy())
 }
 
+fn firefox_fork_cookie_sources() -> Vec<String> {
+    let Some(roaming) = dirs::config_dir() else {
+        return Vec::new();
+    };
+    let mut found: Vec<(SystemTime, PathBuf)> = Vec::new();
+    for fork in ["librewolf", "zen", "Waterfox", "Floorp"] {
+        let profiles_dir = roaming.join(fork).join("Profiles");
+        let Ok(entries) = fs::read_dir(&profiles_dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let profile = entry.path();
+            if let Ok(meta) = fs::metadata(profile.join("cookies.sqlite")) {
+                let mtime = meta.modified().unwrap_or(UNIX_EPOCH);
+                found.push((mtime, profile));
+            }
+        }
+    }
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found
+        .into_iter()
+        .map(|(_, profile)| format!("firefox:{}", profile.to_string_lossy()))
+        .collect()
+}
+
+fn browser_cookie_sources() -> Vec<String> {
+    let mut sources = vec!["firefox".to_string()];
+    sources.extend(firefox_fork_cookie_sources());
+    sources.extend(
+        ["chrome", "brave", "opera", "edge"]
+            .into_iter()
+            .map(str::to_string),
+    );
+    sources
+}
+
 async fn download_with_cookie_fallback(
     app: &AppHandle,
     state: &AppState,
@@ -1220,13 +1292,13 @@ async fn download_with_cookie_fallback(
         "Download without browser cookies failed, trying browser cookies: {first_err}"
     ));
 
-    for browser in ["firefox", "chrome", "brave", "opera", "edge"] {
+    for browser in browser_cookie_sources() {
         if state.is_cancelled() {
             return Err(CANCELLED.to_string());
         }
         log_info(&format!("Attempting download with {browser} cookies..."));
         report_progress(app, ProgressPayload::stage("retrying", String::new()));
-        match attempt_download(app, state, request, home_dir, temp_dir, Some(browser)).await {
+        match attempt_download(app, state, request, home_dir, temp_dir, Some(&browser)).await {
             Ok(done) => return Ok(done),
             Err(e) if state.is_cancelled() || e == CANCELLED => return Err(CANCELLED.to_string()),
             Err(e) if should_try_next_browser(&e) => {
@@ -1278,8 +1350,9 @@ fn covers_whole_file(intervals: &[(f64, f64)], duration: Option<f64>) -> bool {
 }
 
 /// Cuts the requested range, minus any sponsor segments inside it, out of the staged
-/// download. Everything is measured on the original timeline, except for a section
-/// download, whose staged file already starts at the range.
+/// download. Section downloads are already cut at exact timestamps by yt-dlp
+/// (`--force-keyframes-at-cuts`), so they are moved straight into place without a
+/// second re-encode.
 async fn finalize_trim(
     app: &AppHandle,
     state: &AppState,
@@ -1320,16 +1393,20 @@ async fn finalize_trim(
         return Err(RANGE_REMOVED.to_string());
     }
 
-    let clip = match media {
-        Some(_) if !is_section && covers_whole_file(&intervals, duration) => Some(source.clone()),
-        Some(media) if !intervals.is_empty() => {
-            match ffmpeg::cut_media(app, state, &source, &intervals, &media, "trimming").await {
-                Ok(clip) => Some(clip),
-                Err(()) if state.is_cancelled() => return Err(CANCELLED.to_string()),
-                Err(()) => None,
+    let clip = if is_section {
+        Some(source.clone())
+    } else {
+        match media {
+            Some(_) if covers_whole_file(&intervals, duration) => Some(source.clone()),
+            Some(media) if !intervals.is_empty() => {
+                match ffmpeg::cut_media(app, state, &source, &intervals, &media, "trimming").await {
+                    Ok(clip) => Some(clip),
+                    Err(()) if state.is_cancelled() => return Err(CANCELLED.to_string()),
+                    Err(()) => None,
+                }
             }
+            _ => None,
         }
-        _ => None,
     };
     if let (Some(_), Some(item), Some(seconds)) = (
         &clip,
@@ -2217,7 +2294,7 @@ mod tests {
         let built = args(&req);
         let at = built.iter().position(|a| a == "--download-sections").unwrap();
         assert_eq!(built[at + 1], "*90-165.5");
-        assert!(!built.iter().any(|a| a == "--force-keyframes-at-cuts"));
+        assert!(built.iter().any(|a| a == "--force-keyframes-at-cuts"));
         assert_eq!(&built[built.len() - 2..], ["--", "https://a.b/c"]);
 
         assert_eq!(section(None, Some("00:01:59"), hour), Some((0.0, Some(119.0))));

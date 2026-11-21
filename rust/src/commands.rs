@@ -312,7 +312,14 @@ pub async fn update_app(app: AppHandle, state: AppStateRef<'_>) -> Result<(), St
         return Err("Güncelleme yok.".to_string());
     }
 
-    let res = install_app_update(&app, &update.download_url, update.sha256.as_deref()).await;
+    let res = install_app_update(
+        &app,
+        &update.latest,
+        &update.download_url,
+        update.sha256.as_deref(),
+        &update.release_notes,
+    )
+    .await;
     if let Err(e) = &res {
         log_error(&format!("App update failed: {e}"));
     }
