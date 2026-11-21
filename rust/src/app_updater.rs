@@ -1,4 +1,4 @@
-#![cfg_attr(not(windows), allow(dead_code))]
+#![cfg_attr(not(any(windows, target_os = "android")), allow(dead_code))]
 
 use crate::config::{app_data_dir, log_info, log_warn, write_json};
 use crate::state::{lock, AppState, AppUpdateState};
@@ -7,18 +7,34 @@ use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "android"))]
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+#[cfg(not(target_os = "android"))]
 const API_LATEST_URL: &str =
     "https://api.github.com/repos/anilyildiz8/Video-Indiren/releases/latest";
+#[cfg(not(target_os = "android"))]
 const ALLOWED_URL_PREFIX: &str =
     "https://github.com/anilyildiz8/Video-Indiren/releases/download/";
-const USER_AGENT: &str = "VideoIndiren-updater";
+#[cfg(not(target_os = "android"))]
 const ASSET_NAME: &str = "VideoIndiren.exe";
+#[cfg(not(target_os = "android"))]
+const ASSET_MAGIC: &[u8; 2] = b"MZ";
+#[cfg(target_os = "android")]
+const API_LATEST_URL: &str =
+    "https://api.github.com/repos/MuratOzc/Video-Indiren-Pro-Max/releases/latest";
+#[cfg(target_os = "android")]
+const ALLOWED_URL_PREFIX: &str =
+    "https://github.com/MuratOzc/Video-Indiren-Pro-Max/releases/download/";
+#[cfg(target_os = "android")]
+const ASSET_NAME: &str = "VideoIndiren.apk";
+#[cfg(target_os = "android")]
+const ASSET_MAGIC: &[u8; 2] = b"PK";
+const USER_AGENT: &str = "VideoIndiren-updater";
 const MIN_EXE_BYTES: u64 = 1_000_000;
 
 fn append_ext(path: &Path, suffix: &str) -> PathBuf {
@@ -253,7 +269,7 @@ async fn download_exe(
     drop(file);
 
     let mut magic = [0u8; 2];
-    let is_exe = File::open(dest).and_then(|mut f| f.read_exact(&mut magic)).is_ok() && &magic == b"MZ";
+    let is_exe = File::open(dest).and_then(|mut f| f.read_exact(&mut magic)).is_ok() && &magic == ASSET_MAGIC;
     if downloaded < MIN_EXE_BYTES || !is_exe {
         return Err("İndirilen dosya geçerli bir uygulama değil.".to_string());
     }
@@ -263,6 +279,43 @@ async fn download_exe(
     Ok(())
 }
 
+#[cfg(target_os = "android")]
+pub async fn install_app_update(
+    app: &AppHandle,
+    latest: &str,
+    download_url: &str,
+    expected_sha256: Option<&str>,
+    release_notes: &str,
+) -> Result<(), String> {
+    if cfg!(debug_assertions) {
+        return Err("Geliştirme modunda uygulama güncellemesi devre dışı.".to_string());
+    }
+    if !download_url.starts_with(ALLOWED_URL_PREFIX) {
+        return Err("Geçersiz indirme adresi.".to_string());
+    }
+    let expected_sha256 =
+        expected_sha256.ok_or_else(|| "Güncelleme doğrulanamadı: SHA-256 değeri yok.".to_string())?;
+    let apk = crate::android::cache_dir()
+        .ok_or("Uygulama klasörü bulunamadı.")?
+        .join("update.apk");
+
+    if let Err(e) = download_exe(app, download_url, expected_sha256, &apk).await {
+        let _ = fs::remove_file(&apk);
+        return Err(e);
+    }
+    save_pending_notes(latest, release_notes);
+    log_info(&format!("Downloaded app update {latest}; opening the installer."));
+
+    let path = apk.to_string_lossy().into_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::android::call::<serde_json::Value>("installApk", serde_json::json!({ "path": path }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map(drop)
+}
+
+#[cfg(not(target_os = "android"))]
 pub async fn install_app_update(
     app: &AppHandle,
     latest: &str,

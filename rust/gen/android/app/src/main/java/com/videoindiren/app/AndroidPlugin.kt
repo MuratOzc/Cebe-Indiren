@@ -171,6 +171,24 @@ class AndroidPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   @Command
+  fun installApk(invoke: Invoke) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
+      activity.startActivity(
+        Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}"))
+      )
+      invoke.reject("Güncellemeyi kurmak için açılan ekranda bu uygulamaya izin verin, sonra Güncelle'ye tekrar dokunun.")
+      return
+    }
+    val file = File(invoke.parseArgs(PathArgs::class.java).path)
+    val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
+    val intent = Intent(Intent.ACTION_VIEW)
+      .setDataAndType(uri, "application/vnd.android.package-archive")
+      .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    activity.startActivity(intent)
+    invoke.resolve()
+  }
+
+  @Command
   fun scanPaths(invoke: Invoke) {
     MediaScannerConnection.scanFile(activity.applicationContext, invoke.parseArgs(PathsArgs::class.java).paths, null, null)
     invoke.resolve()

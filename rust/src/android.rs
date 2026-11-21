@@ -56,6 +56,10 @@ fn tools() -> Option<&'static ToolDirs> {
     TOOLS.wait().as_ref()
 }
 
+pub fn cache_dir() -> Option<PathBuf> {
+    tools().map(|t| t.cache_dir.clone())
+}
+
 static PLUGIN: OnceLock<PluginHandle<Wry>> = OnceLock::new();
 
 pub fn plugin() -> TauriPlugin<Wry> {

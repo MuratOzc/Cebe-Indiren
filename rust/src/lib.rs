@@ -18,7 +18,9 @@ mod theme;
 mod updater;
 
 #[cfg(windows)]
-use crate::app_updater::{cleanup_old_exe, start_app_update_check};
+use crate::app_updater::cleanup_old_exe;
+#[cfg(any(windows, target_os = "android"))]
+use crate::app_updater::start_app_update_check;
 use crate::config::{initialize_download_dir, load_config, log_info};
 use crate::downloader::cleanup_temp_dir;
 use crate::state::{kill_process_tree, lock, AppState};
@@ -87,6 +89,8 @@ pub fn run() {
             start_update_check(Arc::clone(&app_state));
             #[cfg(windows)]
             start_app_update_check(Arc::clone(&app_state), just_updated);
+            #[cfg(target_os = "android")]
+            start_app_update_check(Arc::clone(&app_state), false);
             app.manage(app_state);
 
             let window_config = app

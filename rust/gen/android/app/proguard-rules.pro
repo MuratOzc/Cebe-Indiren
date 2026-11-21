@@ -19,3 +19,6 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# Tauri finds the plugin, its commands and argument classes by reflection.
+-keep class com.videoindiren.app.** { *; }
+-keep class com.yausername.** { *; }

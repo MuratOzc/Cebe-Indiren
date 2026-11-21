@@ -256,7 +256,8 @@ h1, h2, p, ul, ol, dl, dd {
     display: flex;
     flex-direction: column;
     min-height: 100%;
-    padding: clamp(20px, 7vh, 72px) var(--edge) 52px;
+    padding: calc(clamp(20px, 7vh, 72px) + env(safe-area-inset-top, 0px)) var(--edge)
+        calc(52px + env(safe-area-inset-bottom, 0px));
 }
 
 .app {
@@ -267,7 +268,7 @@ h1, h2, p, ul, ol, dl, dd {
 
 .corner {
     position: absolute;
-    top: 12px;
+    top: calc(12px + env(safe-area-inset-top, 0px));
     right: 12px;
     display: flex;
     gap: 2px;
@@ -276,7 +277,7 @@ h1, h2, p, ul, ol, dl, dd {
 .app-version {
     position: absolute;
     left: 16px;
-    bottom: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     font-size: 12.5px;
     color: var(--ink-2);
 }
@@ -284,8 +285,20 @@ h1, h2, p, ul, ol, dl, dd {
 .app-cookies {
     position: absolute;
     right: 16px;
-    bottom: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     font-size: 12.5px;
+}
+
+.android .page {
+    padding-top: calc(60px + env(safe-area-inset-top, 0px));
+}
+
+.android .app {
+    margin-top: 0;
+}
+
+.android #shortcutsBtn {
+    display: none;
 }
 
 h1 {
