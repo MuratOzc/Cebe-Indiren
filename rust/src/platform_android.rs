@@ -1,3 +1,4 @@
+use crate::android;
 use std::path::Path;
 
 pub fn clipboard_text() -> Option<String> {
@@ -26,18 +27,31 @@ pub fn kill_process_tree(pid: u32) {
         .output();
 }
 
-const NOT_YET: &str = "Bu özellik Android'de henüz yok.";
+#[derive(serde::Serialize)]
+struct PathArg<'a> {
+    path: &'a str,
+}
 
-pub async fn pick_folder(_initial: String) -> Result<Option<String>, String> {
-    Err(NOT_YET.to_string())
+#[derive(serde::Deserialize)]
+struct PickedFolder {
+    path: Option<String>,
+}
+
+pub async fn pick_folder(initial: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        android::call::<PickedFolder>("pickFolder", PathArg { path: &initial }).map(|picked| picked.path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 pub fn show_in_folder(_path: &Path, _file_path: &str) -> Result<(), String> {
-    Err(NOT_YET.to_string())
+    android::call::<serde_json::Value>("showDownloads", serde_json::json!({})).map(drop)
 }
 
-pub fn open_with_default_app(_path: &Path) -> Result<(), String> {
-    Err(NOT_YET.to_string())
+pub fn open_with_default_app(path: &Path) -> Result<(), String> {
+    let path = path.to_string_lossy();
+    android::call::<serde_json::Value>("openFile", PathArg { path: &path }).map(drop)
 }
 
 pub struct KeepAwake;
@@ -49,3 +63,10 @@ impl KeepAwake {
 }
 
 pub fn hide_path(_path: &Path) {}
+
+pub fn media_changed(paths: &[&Path]) {
+    let paths: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    std::thread::spawn(move || {
+        let _ = android::call::<serde_json::Value>("scanPaths", serde_json::json!({ "paths": paths }));
+    });
+}

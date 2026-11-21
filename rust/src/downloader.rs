@@ -2,7 +2,7 @@ use crate::binaries::{resolve_ffmpeg, ytdlp_command as base_ytdlp_command};
 use crate::config::{default_quality, log_error, log_info, log_warn};
 use crate::ffmpeg::{self, time_to_seconds};
 use crate::history;
-use crate::platform::{hide_path, KeepAwake, NoConsole};
+use crate::platform::{hide_path, media_changed, KeepAwake, NoConsole};
 use crate::sponsorblock::{self, Removed};
 use crate::state::{
     kill_process_tree, lock, AppState, ItemPayload, ProgressPayload,
@@ -1756,6 +1756,10 @@ pub async fn run_download(
     let cleanup_target = temp_dir.clone();
     let _ = tokio::task::spawn_blocking(move || cleanup_temp_dir(&cleanup_target)).await;
     *lock(&state.active_temp_dir) = None;
+    match &outcome {
+        Ok(saved) => media_changed(&[&temp_dir, &saved.path]),
+        Err(_) => media_changed(&[&temp_dir]),
+    }
 
     match outcome {
         Ok(saved) => {

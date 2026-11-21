@@ -138,13 +138,13 @@ fn saved_download(state: &AppState, file_path: &str) -> Result<PathBuf, String> 
 }
 
 #[tauri::command]
-pub fn open_folder(state: AppStateRef<'_>, file_path: String) -> Result<(), String> {
+pub async fn open_folder(state: AppStateRef<'_>, file_path: String) -> Result<(), String> {
     let path = saved_download(&state, &file_path)?;
     platform::show_in_folder(&path, &file_path)
 }
 
 #[tauri::command]
-pub fn open_file(state: AppStateRef<'_>, file_path: String) -> Result<(), String> {
+pub async fn open_file(state: AppStateRef<'_>, file_path: String) -> Result<(), String> {
     let path = saved_download(&state, &file_path)?;
     platform::open_with_default_app(&path)
 }

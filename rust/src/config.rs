@@ -14,7 +14,7 @@ static PLATFORM_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 static PLATFORM_DOWNLOAD_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// For platforms where `dirs` knows no locations; must run before anything reads config.
-#[cfg(mobile)]
+#[cfg(target_os = "android")]
 pub fn set_platform_dirs(data_dir: PathBuf, download_dir: Option<PathBuf>) {
     let _ = PLATFORM_DATA_DIR.set(data_dir);
     if let Some(dir) = download_dir {

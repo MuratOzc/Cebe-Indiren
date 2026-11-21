@@ -1,3 +1,5 @@
+#[cfg(target_os = "android")]
+mod android;
 mod app_updater;
 mod binaries;
 mod commands;
@@ -13,8 +15,6 @@ mod platform;
 mod sponsorblock;
 mod state;
 mod theme;
-#[cfg(target_os = "android")]
-mod tools_android;
 mod updater;
 
 #[cfg(windows)]
@@ -63,13 +63,13 @@ Yine de çıkmak istiyor musunuz?",
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(target_os = "android")]
-    let builder = builder.plugin(tools_android::plugin());
+    let builder = builder.plugin(android::plugin());
     let app = builder
         .setup(|app| {
-            #[cfg(mobile)]
-            config::set_platform_dirs(app.path().app_data_dir()?, app.path().download_dir().ok());
             #[cfg(target_os = "android")]
-            tools_android::prepare(app.handle());
+            config::set_platform_dirs(app.path().app_data_dir()?, Some(android::public_download_dir()));
+            #[cfg(target_os = "android")]
+            android::prepare();
 
             #[cfg(windows)]
             let just_updated = cleanup_old_exe();

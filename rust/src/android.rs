@@ -1,12 +1,13 @@
 use crate::binaries::{bin_dir, is_newer_ytdlp, write_binary, ytdlp_version_path, YTDLP_NAME};
 use crate::config::{log_error, log_info};
-use serde::Deserialize;
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::Wry;
 use tokio::process::Command;
 
 const BUNDLED_YTDLP: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/binaries/yt-dlp"));
@@ -55,27 +56,37 @@ fn tools() -> Option<&'static ToolDirs> {
     TOOLS.wait().as_ref()
 }
 
-struct ToolsPlugin<R: Runtime>(PluginHandle<R>);
+static PLUGIN: OnceLock<PluginHandle<Wry>> = OnceLock::new();
 
-pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
-    Builder::new("tools")
-        .setup(|app, api| {
-            let handle = api.register_android_plugin("com.videoindiren.app", "ToolsPlugin")?;
-            app.manage(ToolsPlugin(handle));
+pub fn plugin() -> TauriPlugin<Wry> {
+    Builder::new("android")
+        .setup(|_app, api| {
+            let handle = api.register_android_plugin("com.videoindiren.app", "AndroidPlugin")?;
+            let _ = PLUGIN.set(handle);
             Ok(())
         })
         .build()
 }
 
-// Kotlin answers on the main thread, so the call must not run on it; needs the app data dir set.
-pub fn prepare<R: Runtime>(app: &AppHandle<R>) {
-    let app = app.clone();
-    std::thread::spawn(move || {
+// Kotlin answers on the main thread, so this must never be called from it.
+pub fn call<T: DeserializeOwned>(command: &str, payload: impl Serialize) -> Result<T, String> {
+    PLUGIN
+        .get()
+        .ok_or("Android plugin not registered")?
+        .run_mobile_plugin(command, payload)
+        .map_err(|e| e.to_string())
+}
+
+pub fn public_download_dir() -> PathBuf {
+    let root = std::env::var("EXTERNAL_STORAGE").unwrap_or_else(|_| "/storage/emulated/0".into());
+    PathBuf::from(root).join("Download")
+}
+
+// Needs the app data dir set.
+pub fn prepare() {
+    std::thread::spawn(|| {
         ensure_bundled_ytdlp();
-        let dirs = app
-            .state::<ToolsPlugin<R>>()
-            .0
-            .run_mobile_plugin::<ToolDirs>("prepare", serde_json::json!({}));
+        let dirs = call::<ToolDirs>("prepare", serde_json::json!({}));
         match dirs {
             Ok(dirs) => {
                 log_info(&format!("Tools ready in {}", dirs.native_lib_dir.display()));

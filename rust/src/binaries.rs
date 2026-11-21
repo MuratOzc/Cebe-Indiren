@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
 #[cfg(target_os = "android")]
-pub use crate::tools_android::{
+pub use crate::android::{
     resolve_ffmpeg, resolve_ffprobe, tool_command, ytdlp_command,
 };
 
