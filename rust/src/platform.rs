@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 use std::os::windows::ffi::OsStrExt;
+use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::sync::mpsc::{channel, Sender};
 
@@ -9,6 +10,7 @@ const FILE_ATTRIBUTE_HIDDEN: u32 = 0x0000_0002;
 const INVALID_FILE_ATTRIBUTES: u32 = u32::MAX;
 const CF_UNICODETEXT: u32 = 13;
 const MAX_CLIPBOARD_UNITS: usize = 16 * 1024;
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[link(name = "kernel32")]
 extern "system" {
@@ -59,6 +61,62 @@ unsafe fn read_open_clipboard() -> Option<String> {
     let text = String::from_utf16_lossy(&wide[..len]);
     GlobalUnlock(handle);
     Some(text)
+}
+
+pub trait NoConsole {
+    fn no_console(&mut self) -> &mut Self;
+}
+
+impl NoConsole for std::process::Command {
+    fn no_console(&mut self) -> &mut Self {
+        self.creation_flags(CREATE_NO_WINDOW)
+    }
+}
+
+impl NoConsole for tokio::process::Command {
+    fn no_console(&mut self) -> &mut Self {
+        self.creation_flags(CREATE_NO_WINDOW)
+    }
+}
+
+pub fn kill_process_tree(pid: u32) {
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .no_console()
+        .output();
+}
+
+pub async fn pick_folder(initial: String) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut dialog = rfd::FileDialog::new();
+        if !initial.is_empty() && Path::new(&initial).exists() {
+            dialog = dialog.set_directory(&initial);
+        }
+        dialog
+            .pick_folder()
+            .map(|p| p.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+pub fn show_in_folder(path: &Path, file_path: &str) -> Result<(), String> {
+    let mut explorer = std::process::Command::new("explorer");
+    if path.is_file() {
+        let clean = file_path.replace('/', "\\");
+        explorer.raw_arg(format!("/select,\"{clean}\""));
+    } else {
+        explorer.arg(path);
+    }
+    explorer.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+pub fn open_with_default_app(path: &Path) -> Result<(), String> {
+    std::process::Command::new("explorer")
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 pub struct KeepAwake {

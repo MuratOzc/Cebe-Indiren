@@ -1,12 +1,10 @@
 use crate::history::HistoryEntry;
 use serde::Serialize;
-use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
-pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+pub use crate::platform::kill_process_tree;
 
 pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
@@ -111,11 +109,4 @@ impl AppState {
     pub fn is_cancelled(&self) -> bool {
         self.cancel_requested.load(Ordering::SeqCst)
     }
-}
-
-pub fn kill_process_tree(pid: u32) {
-    let _ = Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
 }

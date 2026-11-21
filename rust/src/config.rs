@@ -4,15 +4,31 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 static LOG_LOCK: Mutex<()> = Mutex::new(());
 static CONFIG_LOCK: Mutex<()> = Mutex::new(());
 const MAX_LOG_BYTES: u64 = 1_000_000;
 
+static PLATFORM_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+static PLATFORM_DOWNLOAD_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// For platforms where `dirs` knows no locations; must run before anything reads config.
+#[cfg(mobile)]
+pub fn set_platform_dirs(data_dir: PathBuf, download_dir: Option<PathBuf>) {
+    let _ = PLATFORM_DATA_DIR.set(data_dir);
+    if let Some(dir) = download_dir {
+        let _ = PLATFORM_DOWNLOAD_DIR.set(dir);
+    }
+}
+
 pub fn app_data_dir() -> PathBuf {
-    let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    let dir = base.join("VideoIndiren");
+    let dir = match PLATFORM_DATA_DIR.get() {
+        Some(dir) => dir.clone(),
+        None => dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("VideoIndiren"),
+    };
     let _ = fs::create_dir_all(&dir);
     dir
 }
@@ -100,7 +116,8 @@ pub fn initialize_download_dir(saved_dir: Option<String>) -> String {
     if let Some(dir) = saved_dir.filter(|dir| !dir.is_empty() && Path::new(dir).exists()) {
         return dir;
     }
-    if let Some(dl) = dirs::download_dir().filter(|dl| dl.exists()) {
+    let platform_dl = PLATFORM_DOWNLOAD_DIR.get().cloned();
+    if let Some(dl) = dirs::download_dir().or(platform_dl).filter(|dl| dl.exists()) {
         return dl.to_string_lossy().into_owned();
     }
     let local = std::env::current_dir()

@@ -2,7 +2,7 @@
 downloads/
 
 rust/target/
-rust/gen/
+rust/gen/schemas/
 rust/binaries/
 
 .agents/

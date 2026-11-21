@@ -2,10 +2,10 @@ use crate::binaries::{resolve_ffmpeg, resolve_ytdlp};
 use crate::config::{default_quality, log_error, log_info, log_warn};
 use crate::ffmpeg::{self, time_to_seconds};
 use crate::history;
-use crate::platform::{hide_path, KeepAwake};
+use crate::platform::{hide_path, KeepAwake, NoConsole};
 use crate::sponsorblock::{self, Removed};
 use crate::state::{
-    kill_process_tree, lock, AppState, ItemPayload, ProgressPayload, CREATE_NO_WINDOW,
+    kill_process_tree, lock, AppState, ItemPayload, ProgressPayload,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -13,8 +13,11 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(desktop)]
 use tauri::window::{ProgressBarState, ProgressBarStatus};
-use tauri::{AppHandle, Emitter, Manager};
+#[cfg(desktop)]
+use tauri::Manager;
+use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -104,10 +107,17 @@ impl VideoInfo {
     }
 }
 
+#[cfg_attr(mobile, allow(unused_variables))]
 fn set_taskbar_progress(app: &AppHandle, value: i32) {
     if TASKBAR_PROGRESS.swap(value, Ordering::Relaxed) == value {
         return;
     }
+    #[cfg(desktop)]
+    show_taskbar_progress(app, value);
+}
+
+#[cfg(desktop)]
+fn show_taskbar_progress(app: &AppHandle, value: i32) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
@@ -151,7 +161,7 @@ fn ytdlp_command() -> Command {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW);
+        .no_console();
     cmd
 }
 

@@ -1,7 +1,8 @@
 use crate::binaries::resolve_ffmpeg;
 use crate::config::{log_error, log_info};
 use crate::downloader::{next_line_lossy, report_progress};
-use crate::state::{lock, AppState, ProgressPayload, CREATE_NO_WINDOW};
+use crate::platform::NoConsole;
+use crate::state::{lock, AppState, ProgressPayload};
 use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -130,7 +131,7 @@ pub async fn probe(path: &Path) -> Option<Media> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
+        .no_console()
         .output()
         .await
         .ok()?;
@@ -271,7 +272,7 @@ pub async fn cut_media(
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW);
+        .no_console();
 
     log_info(&format!("Cutting {}: keeping {intervals:?}", in_path.display()));
     emit_cut_progress(app, stage, total.map(|_| 0));

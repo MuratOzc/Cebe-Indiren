@@ -98,10 +98,12 @@ fn main() {
     }
 
     println!("cargo:rustc-env=BUNDLED_YTDLP_VERSION={YTDLP_VERSION}");
-    let dir = Path::new("binaries");
-    ensure_bundled_binaries(dir);
-    if std::env::var("PROFILE").as_deref() == Ok("release") {
-        compress_into_out_dir(dir);
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        let dir = Path::new("binaries");
+        ensure_bundled_binaries(dir);
+        if std::env::var("PROFILE").as_deref() == Ok("release") {
+            compress_into_out_dir(dir);
+        }
     }
     tauri_build::build()
 }

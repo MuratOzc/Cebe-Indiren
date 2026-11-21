@@ -1,3 +1,5 @@
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use crate::config::{app_data_dir, log_info, log_warn, write_json};
 use crate::state::{lock, AppState, AppUpdateState};
 use serde::{Deserialize, Serialize};

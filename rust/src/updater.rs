@@ -2,7 +2,8 @@ use crate::binaries::{
     bin_dir, is_newer_ytdlp, resolve_ytdlp, write_binary, ytdlp_version_path, YTDLP_NAME,
 };
 use crate::config::{log_info, log_warn};
-use crate::state::{lock, AppState, UpdateState, CREATE_NO_WINDOW};
+use crate::platform::NoConsole;
+use crate::state::{lock, AppState, UpdateState};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::process::Stdio;
@@ -29,7 +30,7 @@ async fn active_ytdlp_version() -> Option<String> {
         .arg("--version")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
+        .no_console()
         .output()
         .await
         .ok()?;

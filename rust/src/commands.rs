@@ -10,13 +10,13 @@ use crate::sponsorblock;
 use crate::state::{lock, AppState, AppUpdateState, UpdateState};
 use crate::updater::{install_update, start_update_check};
 use serde::Serialize;
-use std::os::windows::process::CommandExt;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use crate::theme::{self, ThemeMode};
-use tauri::{AppHandle, Manager, State, UserAttentionType, WebviewWindow};
+use tauri::{AppHandle, State, WebviewWindow};
+#[cfg(desktop)]
+use tauri::{Manager, UserAttentionType};
 
 type AppStateRef<'a> = State<'a, Arc<AppState>>;
 
@@ -112,18 +112,7 @@ pub fn set_theme(window: WebviewWindow, theme: ThemeMode) {
 #[tauri::command]
 pub async fn select_folder(state: AppStateRef<'_>) -> Result<Option<String>, String> {
     let initial = lock(&state.download_dir).clone();
-
-    let picked = tokio::task::spawn_blocking(move || {
-        let mut dialog = rfd::FileDialog::new();
-        if !initial.is_empty() && Path::new(&initial).exists() {
-            dialog = dialog.set_directory(&initial);
-        }
-        dialog
-            .pick_folder()
-            .map(|p| p.to_string_lossy().into_owned())
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+    let picked = platform::pick_folder(initial).await?;
 
     if let Some(folder) = &picked {
         *lock(&state.download_dir) = folder.clone();
@@ -151,24 +140,13 @@ fn saved_download(state: &AppState, file_path: &str) -> Result<PathBuf, String> 
 #[tauri::command]
 pub fn open_folder(state: AppStateRef<'_>, file_path: String) -> Result<(), String> {
     let path = saved_download(&state, &file_path)?;
-    let mut explorer = Command::new("explorer");
-    if path.is_file() {
-        let clean = file_path.replace('/', "\\");
-        explorer.raw_arg(format!("/select,\"{clean}\""));
-    } else {
-        explorer.arg(&path);
-    }
-    explorer.spawn().map(|_| ()).map_err(|e| e.to_string())
+    platform::show_in_folder(&path, &file_path)
 }
 
 #[tauri::command]
 pub fn open_file(state: AppStateRef<'_>, file_path: String) -> Result<(), String> {
     let path = saved_download(&state, &file_path)?;
-    Command::new("explorer")
-        .arg(&path)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    platform::open_with_default_app(&path)
 }
 
 #[tauri::command]
@@ -232,6 +210,7 @@ pub async fn start_download(
     }
 
     clear_taskbar_progress(&app);
+    #[cfg(desktop)]
     if let Some(window) = app.get_webview_window("main") {
         if !window.is_focused().unwrap_or(true) {
             let _ = window.request_user_attention(Some(UserAttentionType::Informational));
