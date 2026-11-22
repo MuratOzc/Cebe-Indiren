@@ -94,6 +94,24 @@ pub async fn pick_folder(initial: String) -> Result<Option<String>, String> {
     .map_err(|e| e.to_string())?
 }
 
+#[derive(serde::Deserialize)]
+struct Granted {
+    granted: bool,
+}
+
+pub async fn ensure_storage() -> Result<(), String> {
+    let granted = tauri::async_runtime::spawn_blocking(|| {
+        android::call::<Granted>("ensureStorage", serde_json::json!({})).map(|result| result.granted)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if granted {
+        Ok(())
+    } else {
+        Err("Depolama izni verilmedi. Ayarlar > Uygulamalar > Cebe İndiren > İzinler bölümünden depolama iznini açıp tekrar deneyin.".to_string())
+    }
+}
+
 pub fn show_in_folder(_path: &Path, _file_path: &str) -> Result<(), String> {
     android::call::<serde_json::Value>("showDownloads", serde_json::json!({})).map(drop)
 }

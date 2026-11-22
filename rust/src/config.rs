@@ -117,7 +117,7 @@ pub fn initialize_download_dir(saved_dir: Option<String>) -> String {
         return dir;
     }
     let platform_dl = PLATFORM_DOWNLOAD_DIR.get().cloned();
-    if let Some(dl) = dirs::download_dir().or(platform_dl).filter(|dl| dl.exists()) {
+    if let Some(dl) = dirs::download_dir().filter(|dl| dl.exists()).or(platform_dl) {
         return dl.to_string_lossy().into_owned();
     }
     let local = std::env::current_dir()

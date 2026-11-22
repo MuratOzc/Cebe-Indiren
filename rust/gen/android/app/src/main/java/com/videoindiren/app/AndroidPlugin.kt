@@ -22,6 +22,8 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
@@ -58,14 +60,36 @@ class PathsArgs {
   var paths: Array<String> = emptyArray()
 }
 
-@TauriPlugin
+@TauriPlugin(permissions = [Permission(strings = [Manifest.permission.WRITE_EXTERNAL_STORAGE], alias = "storage")])
 class AndroidPlugin(private val activity: Activity) : Plugin(activity) {
   private var sharedText: String? = null
   private var cookiesPath: String? = null
 
   override fun load(webView: android.webkit.WebView) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) requestPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+    if (!storageGranted()) requestPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
     keepShared(activity.intent)
+  }
+
+  // Android 10 still runs in legacy storage mode (requestLegacyExternalStorage), so it needs the permission too.
+  private fun storageGranted(): Boolean =
+    Build.VERSION.SDK_INT > Build.VERSION_CODES.Q ||
+      activity.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+
+  private fun grantedResult(): JSObject {
+    val result = JSObject()
+    result.put("granted", storageGranted())
+    return result
+  }
+
+  @Command
+  fun ensureStorage(invoke: Invoke) {
+    if (storageGranted()) invoke.resolve(grantedResult())
+    else requestPermissionForAlias("storage", invoke, "storageAnswered")
+  }
+
+  @PermissionCallback
+  fun storageAnswered(invoke: Invoke) {
+    invoke.resolve(grantedResult())
   }
 
   override fun onNewIntent(intent: Intent) {

@@ -1748,6 +1748,9 @@ pub async fn run_download(
 ) -> Result<DownloadResult, String> {
     state.cancel_requested.store(false, Ordering::SeqCst);
 
+    #[cfg(target_os = "android")]
+    crate::platform::ensure_storage().await?;
+
     let download_dir = PathBuf::from(download_dir);
     remove_stale_temp_dirs(&download_dir);
 
